@@ -27,7 +27,7 @@ Reglas de lectura del Excel (validadas contra la cápita de referencia de jul/ag
 - La cápita es un número de personas, no dinero, y entre módulos de un mismo bloque
   no se suma: se promedia (eso lo hace el motor del HTML).
 """
-import argparse, csv, gzip, io, json, os, sys, datetime, collections
+import argparse, csv, gzip, io, json, os, sys, datetime, collections, re
 import openpyxl
 
 RUBRO_RANGOS = [
@@ -42,11 +42,21 @@ def rubro(mod):
         if f(n): return r
     return "Otros"
 
+import unicodedata
+def _norm(s):
+    s = unicodedata.normalize("NFD", str(s or "")).encode("ascii", "ignore").decode().upper()
+    return " ".join(s.split())
+LOC_UGL = collections.defaultdict(collections.Counter)   # localidad normalizada -> Counter(UGL): cuántas bocas del padrón hay ahí
+STOP = {"DE", "DEL", "LA", "EL", "LAS", "LOS"}
+def _clave(s): return " ".join(w for w in _norm(s).split() if w not in STOP)
+
 def leer_padron(path):
     txt = gzip.open(path, "rb").read().decode("latin-1")
     rd = csv.DictReader(io.StringIO(txt), delimiter=";")
     mods, ugls, prest = {}, {}, {}
     for r in rd:
+        _l = _clave(r.get("D_UBIC_GEO"))
+        if _l: LOC_UGL[_l][r["c_ugl"].strip().zfill(2)] += 1
         m = r["C_MODULO_PAMI_"].strip()
         if m and m not in mods: mods[m] = r["D_MODULO_PAMI"].strip()
         u = r["c_ugl"].strip().zfill(2)
@@ -71,6 +81,8 @@ def leer_excel(path):
     if len(periodos) != 1: sys.exit("Excel %s: más de un PERIODO (%s)" % (path, periodos))
     return periodos.pop(), H, data
 
+AG_NOMBRES = collections.defaultdict(set)   # (ugl_asig, cod) -> nombres que trae D_AGENCIA (vienen cartesianos)
+
 def procesar_mes(per, H, data, padron_prest, archivo):
     # prestador -> módulo -> agencia (ugl_asig, cod) -> fila
     P = collections.OrderedDict()
@@ -85,6 +97,7 @@ def procesar_mes(per, H, data, padron_prest, archivo):
         m = p["mods"].setdefault(mod, collections.OrderedDict())
         fila = {"ugl": ag[0], "cod": ag[1], "pct": r[H["PORCENTAJE_ASIGNADO"]],
                 "afiliados": r[H["N_CANT_AGENCIA"]], "cap": r[H["N_CAPITA_REF"]]}
+        if "D_AGENCIA" in H: AG_NOMBRES[ag].add(_norm(r[H["D_AGENCIA"]]))
         if ag in m:
             prev = m[ag]
             if (prev["pct"], prev["afiliados"], prev["cap"]) != (fila["pct"], fila["afiliados"], fila["cap"]):
@@ -116,12 +129,91 @@ def procesar_mes(per, H, data, padron_prest, archivo):
                                   "fuente": os.path.basename(archivo)}}
     return out, sin_sap
 
+ROMAN = {i: r for i, r in enumerate(["I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII","XIII","XIV","XV","XVI","XVII","XVIII","XIX","XX","XXI","XXII","XXIII","XXIV","XXV","XXVI","XXVII","XXVIII","XXIX","XXX","XXXI","XXXII","XXXIII","XXXIV","XXXV","XXXVI","XXXVII","XXXVIII"], 1)}
+PRE_AG = re.compile(r"^(CAP CABECERA|CAP|AGENCIA|BOCA DE ATENCION|CENTRO DE ATENCION PERSONALIZADA|OFICINA|DELEGACION)\s+")
+
+def _ugls_de(nombre):
+    if nombre.startswith("UGL "):
+        m = re.match(r"UGL ([IVXL]+)", nombre)
+        if m:
+            for k, v in ROMAN.items():
+                if v == m.group(1): return {str(k).zfill(2)}
+        return set()
+    base = _clave(PRE_AG.sub("", nombre))
+    if not base: return set()
+    cnt = collections.Counter()
+    if base in LOC_UGL: cnt = collections.Counter(LOC_UGL[base])
+    else:
+        for l, us in LOC_UGL.items():
+            if len(l) > 5 and (l in base or base in l): cnt.update(us)
+    tot = sum(cnt.values())
+    if not tot: return set()
+    # solo UGLs donde la localidad es dominante (evita bocas sueltas de otra UGL en esa localidad)
+    return set(u for u, n in cnt.items() if n >= 5 and n / tot >= 0.5)
+
+def leer_maestro(path):
+    """Maestro oficial de agencias (xlsx/csv) con columnas UGL, código de agencia y nombre."""
+    filas = []
+    if path.lower().endswith(".csv"):
+        txt = open(path, encoding="utf-8-sig", errors="ignore").read()
+        d = ";" if txt.split("\n", 1)[0].count(";") > txt.split("\n", 1)[0].count(",") else ","
+        filas = list(csv.reader(io.StringIO(txt), delimiter=d))
+    else:
+        ws = openpyxl.load_workbook(path, read_only=True, data_only=True).worksheets[0]
+        filas = [list(r) for r in ws.iter_rows(values_only=True)]
+    H = {_norm(h): i for i, h in enumerate(filas[0]) if h is not None}
+    def col(*names):
+        for n in names:
+            for k, i in H.items():
+                if k == n or k.startswith(n): return i
+        return None
+    iu, ic, inm = col("C_UGL", "UGL"), col("C_AGENCIA", "CODIGO", "AGENCIA"), col("D_AGENCIA", "NOMBRE", "DESCRIPCION")
+    if None in (iu, ic, inm): sys.exit("maestro de agencias: no encuentro columnas UGL / código / nombre en %s" % list(H))
+    out = {}
+    for r in filas[1:]:
+        if r[iu] is None or r[ic] is None: continue
+        u = str(r[iu]).strip().zfill(2); c = str(r[ic]).strip().zfill(4)
+        out[(u, c)] = _norm(r[inm])
+    return out
+
+def resolver_agencias(maestro):
+    """Devuelve {(ugl,cod): {"nombre","fuente"}}. D_AGENCIA del Excel viene cartesiano por código
+    (trae todas las agencias del país con ese código), así que el nombre real se infiere cruzando
+    la localidad del nombre con las localidades de la UGL en el padrón, con unicidad por código.
+    Si hay maestro oficial, manda el maestro."""
+    res = {}
+    porcod = collections.defaultdict(list)
+    for (u, c) in AG_NOMBRES: porcod[c].append(u)
+    for cod, ugls in porcod.items():
+        nombres = set()
+        for u in ugls: nombres |= AG_NOMBRES[(u, cod)]
+        cand = {n: _ugls_de(n) for n in nombres}
+        pend, taken, asig = dict(cand), set(), {}
+        changed = True
+        while changed and pend:
+            changed = False
+            for n, us in list(pend.items()):
+                us2 = [u for u in us if u in ugls and u not in taken]
+                if len(us2) == 1:
+                    asig[us2[0]] = (n, "unico" if len(us) == 1 else "inferido"); taken.add(us2[0]); del pend[n]; changed = True
+            for u in ugls:
+                if u in taken: continue
+                cs = [n for n, us in pend.items() if u in us]
+                if len(cs) == 1:
+                    asig[u] = (cs[0], "inferido"); taken.add(u); del pend[cs[0]]; changed = True
+        for u in ugls:
+            if u in asig: res[(u, cod)] = {"nombre": asig[u][0], "fuente": asig[u][1]}
+    for k, n in (maestro or {}).items():
+        res[k] = {"nombre": n, "fuente": "maestro"}
+    return res
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--padron", required=True, help="padron_YYYY-MM.csv.gz del repo padron-datos")
     ap.add_argument("--excel", nargs="+", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--previo", help="capita_ctu.json anterior: conserva los meses que no vengan en --excel")
+    ap.add_argument("--agencias", help="maestro oficial de agencias (xlsx/csv: UGL, código, nombre); si se pasa, manda sobre lo inferido")
     a = ap.parse_args()
 
     mods_desc, ugls, padron_prest = leer_padron(a.padron)
@@ -161,13 +253,33 @@ def main():
                            "cargado": datetime.date.today().isoformat()}
         print("%s: %d filas, %d prestadores, sin SAP en padrón: %d %s" % (per, len(data), len(res), len(sin_sap), sin_sap[:5]))
 
+    # nombres de agencia: maestro (si hay) + inferencia; se escriben en cada fila de agencia
+    maestro = leer_maestro(a.agencias) if a.agencias else {}
+    prev_ag = {}
+    if a.previo and os.path.exists(a.previo):
+        try:
+            for k, v in (json.load(open(a.previo, encoding="utf-8")).get("agencias") or {}).items():
+                prev_ag[tuple(k.split("|"))] = v
+        except Exception: pass
+    agencias = resolver_agencias(maestro)
+    for k, v in prev_ag.items():
+        if k not in agencias or (v.get("fuente") == "maestro" and agencias[k]["fuente"] != "maestro"): agencias[k] = v
+    for p in prest.values():
+        for mm in p["meses"].values():
+            for m in mm["modulos"]:
+                for ag in m["agencias"]:
+                    r = agencias.get((ag["ugl"], ag["cod"]))
+                    ag["nombre"] = r["nombre"] if r else None
+                    ag["fuente"] = r["fuente"] if r else None
+    n_res = sum(1 for v in agencias.values()); n_tot = len(AG_NOMBRES)
+    print("agencias: %d pares UGL+código, %d con nombre (%d maestro), %d sin resolver" % (n_tot, n_res, sum(1 for v in agencias.values() if v["fuente"] == "maestro"), n_tot - n_res))
     # sacar prestadores que quedaron sin ningún mes
     lista = [p for p in prest.values() if p["meses"]]
     lista.sort(key=lambda p: (int(p["ugl"]), p["nombre"]))
     meses_ord = collections.OrderedDict(sorted(meses_meta.items()))
     mods_usados = sorted(set(m["mod"] for p in lista for mm in p["meses"].values() for m in mm["modulos"]), key=int)
     doc = collections.OrderedDict([
-        ("esquema", "capita-ctu/1"),
+        ("esquema", "capita-ctu/2"),
         ("generado", datetime.datetime.now().strftime("%Y-%m-%d %H:%M")),
         ("descripcion", "Cápita asignada (retribución CTU) por prestador, mes, módulo y agencia asignada. "
                         "Fuente: Excel mensual Capitas_asignadas_CTU de PAMI; SAP/legajo/CUIT resueltos contra el padrón. "
@@ -175,6 +287,8 @@ def main():
         ("clave", "sap||UGL_NOMBRE (misma llave que window.__CAPITA_EMBEBIDA). También se puede cruzar por c_prestador+ugl o legajo+ugl."),
         ("meses", meses_ord),
         ("ugl", ugls),
+        ("agencias", collections.OrderedDict(("%s|%s" % k, v) for k, v in sorted(agencias.items()))),
+        ("nota_agencias", "D_AGENCIA del Excel viene cartesiano por código; el nombre se infiere por localidad (fuente unico/inferido) o viene del maestro oficial (fuente maestro). 'afiliados' es el padrón de la agencia."),
         ("modulos", collections.OrderedDict((m, mods_desc.get(m, "")) for m in mods_usados)),
         ("prestadores", lista),
     ])
