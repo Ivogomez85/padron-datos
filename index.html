@@ -5616,7 +5616,7 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
       new MutationObserver(sync).observe(document.body,{attributes:true,subtree:true,attributeFilter:['class','style']});
     });
   })();
-  window.__PADRON_BUILD = "2026-09-29.14 (solapas sticky con zoom + filtro de período)";
+  window.__PADRON_BUILD = "2026-09-29.16 (boca en 3 columnas)";
   try{ console.log("%c[padrón] build "+window.__PADRON_BUILD, "color:#7c3aed;font-weight:bold"); }catch(_){}
   window.__fechaOfrSplit = function(s){
     s = safeStr(s); if(!s) return null;
@@ -28582,7 +28582,12 @@ body.admin-system-mode #tab-panorama
     });
     document.addEventListener('change',function(e){ if(e.target&&(e.target.id==='ofrFechaDesde'||e.target.id==='ofrFechaHasta'||e.target.id==='ofrFechaCampo')){ window.__ofrPintarAtajos(); if(typeof buscar==='function') buscar(); } });
   })();
-  window.renderGridLast=function(){if(window.__ofrLastRecords)renderGrid(window.__ofrLastRecords,window.__ofrLastCapped,window.__ofrLastMaxCap);};
+  window.renderGridLast=function(){
+    if(!window.__ofrLastRecords) return;
+    var g=document.getElementById('ofrVistaBatesGrid');
+    if(g){ g.style.transition='opacity .16s'; g.style.opacity='0'; setTimeout(function(){ renderGrid(window.__ofrLastRecords,window.__ofrLastCapped,window.__ofrLastMaxCap); g.style.opacity='1'; }, 50); }
+    else renderGrid(window.__ofrLastRecords,window.__ofrLastCapped,window.__ofrLastMaxCap);
+  };
 
   /* ══ TOGGLE: realidad del portal vs bocas unificadas ══
      No reemplaza nada. Apagado se ve el portal tal cual carga el prestador — una card
@@ -28639,6 +28644,36 @@ body.admin-system-mode #tab-panorama
   /* Colapso por oferente. La clave es legajo/CUIT, estable ante filtros y reordenamientos. */
   window.__ofrColapsar = true;
   window.__ofrEntAbiertas = {};
+  /* Filtro de UGL dentro de la card del oferente (persiste entre re-renders por clave de oferente) */
+  window.__ofrUglCardFiltro = window.__ofrUglCardFiltro || {};
+  window.__ofrAplicarUglCard = function(k){
+    var f=window.__ofrUglCardFiltro[k]; var activo=!!(f&&f.size);
+    document.querySelectorAll('.ofr-ugl-chip[data-ek="'+k+'"]').forEach(function(ch){
+      var on=!activo||f.has(ch.getAttribute('data-ugl'));
+      ch.style.background=on?'#7c3aed':'#fff'; ch.style.color=on?'#fff':'#7c3aed'; ch.style.opacity=on?'1':'.75';
+    });
+    var body=document.getElementById('ofrEnt_'+k); if(!body) return;
+    var nb=0,nm=0;
+    body.querySelectorAll('.ofr-boca-clickable').forEach(function(row){
+      var vis=!activo||f.has(row.getAttribute('data-ugl'));
+      row.style.display=vis?'':'none';
+      if(vis){ nb++; nm+=parseInt(row.getAttribute('data-nmods')||'0',10); }
+    });
+    var cnt=document.getElementById('ofrEntCnt_'+k);
+    if(cnt){
+      var tb=activo?nb:parseInt(cnt.getAttribute('data-bocas')||'0',10), tm=activo?nm:parseInt(cnt.getAttribute('data-mods')||'0',10);
+      cnt.innerHTML=tb+' boca'+(tb!==1?'s':'')+(activo?' <span style="color:#94a3b8;font-weight:500;">de '+cnt.getAttribute('data-bocas')+'</span>':'')+'<br><span style="color:#94a3b8;font-weight:500;">'+tm+' ofrecimiento'+(tm!==1?'s':'')+'</span>';
+    }
+  };
+  window.__ofrAplicarUglCards = function(){ Object.keys(window.__ofrUglCardFiltro||{}).forEach(function(k){ window.__ofrAplicarUglCard(k); }); };
+  window.__ofrToggleUglCard = function(k, ugl){
+    var f=window.__ofrUglCardFiltro[k]||(window.__ofrUglCardFiltro[k]=new Set());
+    if(f.has(ugl)) f.delete(ugl); else f.add(ugl);
+    if(!window.__ofrEntAbiertas[k]) window.__ofrToggleEnt(k);   /* si estaba plegada, se abre para mostrar el resultado */
+    var body=document.getElementById('ofrEnt_'+k);
+    if(body){ body.style.transition='opacity .18s'; body.style.opacity='0'; setTimeout(function(){ window.__ofrAplicarUglCard(k); body.style.opacity='1'; }, 60); }
+    else window.__ofrAplicarUglCard(k);
+  };
   window.__ofrToggleEnt = function(k){
     window.__ofrEntAbiertas[k] = !window.__ofrEntAbiertas[k];
     var body=document.getElementById('ofrEnt_'+k), ico=document.getElementById('ofrEntIco_'+k);
@@ -28821,11 +28856,13 @@ body.admin-system-mode #tab-panorama
       var _uglSrc=chipFilter?ent.batesArr.filter(function(b){return b.mods.some(function(m){return chipFilter.has(m.estado);});}):ent.batesArr;
       var _uglMap={}; _uglSrc.forEach(function(b){var k=String(b.uglId||'').trim(); if(!k) return; if(!_uglMap[k]) _uglMap[k]={id:k,desc:b.uglDesc||'',n:0}; _uglMap[k].n++;});
       var _ugls=Object.keys(_uglMap).map(function(k){return _uglMap[k];}).sort(function(a,b){return (parseInt(a.id,10)||0)-(parseInt(b.id,10)||0);});
-      var uglChips=_ugls.slice(0,3).map(function(u){ return '<span title="UGL '+esc(u.id)+' — '+esc(u.desc)+' · '+u.n+' boca'+(u.n!==1?'s':'')+'" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:900;letter-spacing:.2px;border-radius:8px;padding:3px 10px;white-space:nowrap;background:#7c3aed;color:#fff;box-shadow:0 1px 4px rgba(124,58,237,.35);"><i class="fa-solid fa-location-dot" style="font-size:10px;opacity:.85;"></i>UGL '+esc(u.id)+'<span style="font-weight:700;opacity:.9;text-transform:uppercase;">'+esc(u.desc)+'</span></span>';}).join('')
-        +(_ugls.length>3?'<span title="'+esc(_ugls.slice(3).map(function(u){return 'UGL '+u.id+' — '+u.desc;}).join(' · '))+'" style="font-size:11px;font-weight:900;color:#7c3aed;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:8px;padding:3px 9px;white-space:nowrap;">+'+(_ugls.length-3)+' UGL</span>':'');
+      /* Con una sola UGL es etiqueta; con varias, cada chip filtra las bocas de esa UGL dentro de la card */
+      var _multi=_ugls.length>1;
+      var uglChips=_ugls.slice(0,4).map(function(u){ return '<'+(_multi?'button type="button"':'span')+' class="ofr-ugl-chip" data-ek="'+_ek+'" data-ugl="'+esc(u.id)+'"'+(_multi?' onclick="event.stopPropagation();window.__ofrToggleUglCard(\''+_ek+'\',\''+esc(u.id)+'\')"':'')+' title="UGL '+esc(u.id)+' — '+esc(u.desc)+' · '+u.n+' boca'+(u.n!==1?'s':'')+(_multi?' · clic para ver solo esta UGL':'')+'" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:900;letter-spacing:.2px;border-radius:8px;padding:3px 10px;white-space:nowrap;background:#7c3aed;color:#fff;border:1.5px solid #7c3aed;box-shadow:0 1px 4px rgba(124,58,237,.35);font-family:inherit;'+(_multi?'cursor:pointer;':'')+'transition:background .15s,color .15s,opacity .15s;"><i class="fa-solid fa-location-dot" style="font-size:10px;opacity:.85;"></i>UGL '+esc(u.id)+'<span style="font-weight:700;opacity:.9;text-transform:uppercase;">'+esc(u.desc)+'</span>'+(_multi?'<span style="font-size:10px;font-weight:800;opacity:.85;background:rgba(255,255,255,.22);border-radius:999px;padding:0 6px;">'+u.n+'</span>':'')+'</'+(_multi?'button':'span')+'>';}).join('')
+        +(_ugls.length>4?'<span title="'+esc(_ugls.slice(4).map(function(u){return 'UGL '+u.id+' — '+u.desc;}).join(' · '))+'" style="font-size:11px;font-weight:900;color:#7c3aed;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:8px;padding:3px 9px;white-space:nowrap;">+'+(_ugls.length-4)+' UGL</span>':'');
       html+='<div style="flex:1;min-width:0;"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:5px;"><span style="font-size:14px;font-weight:900;color:#1e1b4b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;" title="'+esc(ent.nombre)+'">'+esc(ent.nombre)+'</span>'+(uglChips?'<span style="display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center;">'+uglChips+'</span>':'')+'</div>';
       html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'+(cuit?'<span style="font-size:10px;color:#64748b;font-weight:600;">CUIT: '+esc(cuit)+'</span>':'')+(legajo?'<span style="font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;border-radius:5px;padding:2px 7px;">Legajo: '+esc(legajo)+'</span>':'')+siiChip+(viaBadge?'&nbsp;'+viaBadge:'')+'</div></div>';
-      html+='<div style="text-align:right;flex-shrink:0;font-size:10px;font-weight:700;color:#7c3aed;white-space:nowrap;">'+tBocas+' boca'+(tBocas!==1?'s':'')+'<br><span style="color:#94a3b8;font-weight:500;">'+tMods+' ofrecimiento'+(tMods!==1?'s':'')+'</span></div>';
+      html+='<div id="ofrEntCnt_'+_ek+'" data-bocas="'+tBocas+'" data-mods="'+tMods+'" style="text-align:right;flex-shrink:0;font-size:10px;font-weight:700;color:#7c3aed;white-space:nowrap;">'+tBocas+' boca'+(tBocas!==1?'s':'')+'<br><span style="color:#94a3b8;font-weight:500;">'+tMods+' ofrecimiento'+(tMods!==1?'s':'')+'</span></div>';
       html+='</div></div>';
       html+='<div id="ofrEnt_'+_ek+'" style="display:'+(_eAbierta?'':'none')+';">';
       ent.batesArr.forEach(function(b,bi){
@@ -28837,23 +28874,24 @@ body.admin-system-mode #tab-panorama
         var bocaMods=chipFilter?b.mods.filter(function(m){return chipFilter.has(m.estado);}):b.mods;
         var bocaVisible=bocaMods.length>0||!chipFilter;
         if(!bocaVisible)return; // con filtro de chip activo, ocultar por completo las bocas que no aplican
-        html+='<div class="ofr-boca-clickable" data-ei="'+ei+'" data-bi="'+bi+'" data-boca-vis="1" style="padding:9px 16px;border-bottom:1px solid rgba(124,58,237,.07);background:'+(bi%2===0?'#fdfdff':'#faf7ff')+';cursor:pointer;">';
-        html+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;flex-wrap:wrap;margin-bottom:5px;">';
-        /* La UGL ya está en la card del oferente: acá solo se repite si tiene bocas en más de una UGL */
+        html+='<div class="ofr-boca-clickable" data-ei="'+ei+'" data-bi="'+bi+'" data-boca-vis="1" data-ugl="'+esc(String(b.uglId||''))+'" data-nmods="'+bocaMods.length+'" style="transition:opacity .18s;padding:9px 16px;border-bottom:1px solid rgba(124,58,237,.07);background:'+(bi%2===0?'#fdfdff':'#faf7ff')+';cursor:pointer;">';
+        html+='<div style="display:flex;align-items:flex-start;gap:18px;">';
+        /* Col 1 — datos de la boca. La UGL ya está en la card; con varias UGL va como etiqueta chica junto al domicilio */
         var _multiUgl=(function(){var st={};ent.batesArr.forEach(function(x){st[String(x.uglId||'')]=1;});return Object.keys(st).length>1;})();
-        html+='<div style="min-width:0;">';
-        if(_multiUgl) html+='<div style="font-size:9px;font-weight:900;color:#7c3aed;text-transform:uppercase;margin-bottom:1px;">UGL '+esc(b.uglId)+' — '+esc(b.uglDesc)+'</div>';
+        html+='<div style="flex:0 0 300px;min-width:0;">';
         /* Nombre de la BATE: se omiten las variantes que son el mismo nombre del oferente (con tolerancia a tipeos) */
         var _nk=function(t){return String(t||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');};
         var _entK=_nk(ent.nombre);
         var bateNamesToShow=(b.bateNamesArr||[b.bate]).filter(function(n){if(!n)return false;var k=_nk(n);return k!==_entK&&k.indexOf(_entK)!==0&&_entK.indexOf(k)!==0;});
         if(bateNamesToShow.length)html+='<div style="font-size:11.5px;font-weight:800;color:#1e293b;"><i class="fa-solid fa-house-medical" style="font-size:9px;color:#7c3aed;margin-right:5px;"></i>'+bateNamesToShow.slice(0,3).map(esc).join('<span style="color:#94a3b8;margin:0 4px;font-weight:400;">·</span>')+(bateNamesToShow.length>3?'<span style="color:#94a3b8;font-size:10px;"> +'+(bateNamesToShow.length-3)+'</span>':'')+'</div>';
         if(b.direccion||b.localidad)html+='<div style="font-size:10.5px;color:#475569;"><i class="fa-solid fa-location-dot" style="font-size:8px;color:#94a3b8;margin-right:4px;"></i>'+esc(b.direccion||'')+(b.localidad?'<span style="color:#94a3b8;margin:0 4px;">·</span>'+esc(b.localidad):'')+'</div>';
+        if(_multiUgl) html+='<div style="margin-top:4px;"><span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:900;color:#7c3aed;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.22);border-radius:6px;padding:1px 7px;text-transform:uppercase;"><i class="fa-solid fa-location-dot" style="font-size:8px;"></i>UGL '+esc(b.uglId)+' · '+esc(b.uglDesc)+'</span></div>';
         html+='</div>';
+        /* Col 2 — módulos por categoría y leyenda (ocupa el espacio central) */
+        html+='<div style="flex:1;min-width:0;">';
         var ultMovBoca=(function(){var best=null,bestTs=0;bocaMods.forEach(function(m){var ts=m.fechaEstadoTs||0;if(ts>bestTs){bestTs=ts;best=m.fechaEstado;}});return best;})();
         var ultMovBadge=ultMovBoca?'<span title="Último movimiento en esta boca: '+esc(ultMovBoca)+'" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:5px;padding:1px 6px;font-size:9px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;"><i class="fa-regular fa-clock" style="font-size:8px;margin-right:3px;opacity:.7;"></i>'+esc(window.__fechaOfrCorta?window.__fechaOfrCorta(ultMovBoca):ultMovBoca)+'</span>':'';
-        html+='<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">'+ultMovBadge+padBadge+'</div>';
-        html+='</div>';
+        var _badgesHTML='<div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px;">'+ultMovBadge+padBadge+'</div>';
         /* Módulos agrupados por CATEGORÍA (del nomenclador) para que se entienda sin saber el número */
         var _grupos={}, _orden=[], _semCount={};
         b.mods.forEach(function(m){
@@ -28882,12 +28920,16 @@ body.admin-system-mode #tab-panorama
         var _semOrd=['naranja','amarillo','azul','verde','rojo','gris'].filter(function(k){return _semCount[k];});
         if(_semOrd.length) html+='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:9px;color:#64748b;font-weight:700;">'
           +_semOrd.map(function(k){return '<span><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+_semCol[k]+';margin-right:4px;vertical-align:middle;"></span>'+_semCount[k]+' '+_semTxt[k]+'</span>';}).join('')+'</div>';
-        html+='</div>';
+        html+='</div>';          /* cierre col 2 */
+        html+=_badgesHTML;       /* col 3 */
+        html+='</div>';          /* cierre flex de la boca */
+        html+='</div>';          /* cierre .ofr-boca-clickable */
       });
       html+='</div>';   /* cierre del contenedor colapsable */
       html+='</div>';
     });
     grid.innerHTML=html;
+    if(window.__ofrAplicarUglCards) window.__ofrAplicarUglCards();
     /* Un clic en un enlace o botón del encabezado no debe plegar la card */
     grid.querySelectorAll('a,button').forEach(function(el){
       el.addEventListener('click', function(ev){ ev.stopPropagation(); });
