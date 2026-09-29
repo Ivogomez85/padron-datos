@@ -5588,7 +5588,7 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
       new MutationObserver(sync).observe(document.body,{attributes:true,subtree:true,attributeFilter:['class']});
     });
   })();
-  window.__PADRON_BUILD = "2026-09-29.5 (afiliados: fallback al último período)";
+  window.__PADRON_BUILD = "2026-09-29.6 (UGL en card corregida)";
   try{ console.log("%c[padrón] build "+window.__PADRON_BUILD, "color:#7c3aed;font-weight:bold"); }catch(_){}
   window.__fechaOfrSplit = function(s){
     s = safeStr(s); if(!s) return null;
@@ -28687,13 +28687,13 @@ body.admin-system-mode #tab-panorama
       html+='<div onclick="window.__ofrToggleEnt(\''+_ek+'\')" style="cursor:pointer;background:linear-gradient(135deg,rgba(124,58,237,.14),rgba(79,70,229,.08));padding:11px 16px;border-bottom:1px solid rgba(124,58,237,.12);">';
       html+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">';
       html+='<i id="ofrEntIco_'+_ek+'" class="fa-solid fa-chevron-right" style="font-size:11px;color:#7c3aed;margin-top:3px;margin-right:7px;transition:transform .15s;'+(_eAbierta?'transform:rotate(90deg);':'')+'"></i>';
-      html+='<div style="flex:1;min-width:0;"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:5px;"><span style="font-size:14px;font-weight:900;color:#1e1b4b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;" title="'+esc(ent.nombre)+'">'+esc(ent.nombre)+'</span>'+(uglChips?'<span style="display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center;">'+uglChips+'</span>':'')+'</div>';
       /* UGLs de la entidad en la card cerrada: chips con color estable por UGL (matiz derivado del N°) */
       var _uglSrc=chipFilter?ent.batesArr.filter(function(b){return b.mods.some(function(m){return chipFilter.has(m.estado);});}):ent.batesArr;
       var _uglMap={}; _uglSrc.forEach(function(b){var k=String(b.uglId||'').trim(); if(!k) return; if(!_uglMap[k]) _uglMap[k]={id:k,desc:b.uglDesc||'',n:0}; _uglMap[k].n++;});
       var _ugls=Object.keys(_uglMap).map(function(k){return _uglMap[k];}).sort(function(a,b){return (parseInt(a.id,10)||0)-(parseInt(b.id,10)||0);});
       var uglChips=_ugls.slice(0,3).map(function(u){ return '<span title="UGL '+esc(u.id)+' — '+esc(u.desc)+' · '+u.n+' boca'+(u.n!==1?'s':'')+'" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:900;letter-spacing:.2px;border-radius:8px;padding:3px 10px;white-space:nowrap;background:#7c3aed;color:#fff;box-shadow:0 1px 4px rgba(124,58,237,.35);"><i class="fa-solid fa-location-dot" style="font-size:10px;opacity:.85;"></i>UGL '+esc(u.id)+'<span style="font-weight:700;opacity:.9;text-transform:uppercase;">'+esc(u.desc)+'</span></span>';}).join('')
         +(_ugls.length>3?'<span title="'+esc(_ugls.slice(3).map(function(u){return 'UGL '+u.id+' — '+u.desc;}).join(' · '))+'" style="font-size:11px;font-weight:900;color:#7c3aed;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:8px;padding:3px 9px;white-space:nowrap;">+'+(_ugls.length-3)+' UGL</span>':'');
+      html+='<div style="flex:1;min-width:0;"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:5px;"><span style="font-size:14px;font-weight:900;color:#1e1b4b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;" title="'+esc(ent.nombre)+'">'+esc(ent.nombre)+'</span>'+(uglChips?'<span style="display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center;">'+uglChips+'</span>':'')+'</div>';
       html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'+(cuit?'<span style="font-size:10px;color:#64748b;font-weight:600;">CUIT: '+esc(cuit)+'</span>':'')+(legajo?'<span style="font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;border-radius:5px;padding:2px 7px;">Legajo: '+esc(legajo)+'</span>':'')+siiChip+(viaBadge?'&nbsp;'+viaBadge:'')+'</div></div>';
       html+='<div style="text-align:right;flex-shrink:0;font-size:10px;font-weight:700;color:#7c3aed;white-space:nowrap;">'+tBocas+' boca'+(tBocas!==1?'s':'')+'<br><span style="color:#94a3b8;font-weight:500;">'+tMods+' ofrecimiento'+(tMods!==1?'s':'')+'</span></div>';
       html+='</div></div>';
