@@ -5595,7 +5595,7 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
       new MutationObserver(sync).observe(document.body,{attributes:true,subtree:true,attributeFilter:['class','style']});
     });
   })();
-  window.__PADRON_BUILD = "2026-09-29.12 (visor: limpiar filtros)";
+  window.__PADRON_BUILD = "2026-09-29.13 (etapas del circuito)";
   try{ console.log("%c[padrón] build "+window.__PADRON_BUILD, "color:#7c3aed;font-weight:bold"); }catch(_){}
   window.__fechaOfrSplit = function(s){
     s = safeStr(s); if(!s) return null;
@@ -26987,10 +26987,10 @@ body.admin-system-mode #tab-panorama
   window.__ofrSemaforo = ofrSemaforo;
   /* Leyenda reutilizable, para no describir los colores de memoria en cada vista */
   window.__OFR_SEM_LEYENDA = [
-    { k:'azul',     t:'Pendiente de auditoría en terreno' },
-    { k:'verde',    t:'Auditado — avanza a firma o contratado' },
-    { k:'amarillo', t:'Pendiente de acreditación documental' },
-    { k:'naranja',  t:'Falta que el prestador cargue documentación' },
+    { k:'naranja',  t:'Falta que el oferente cargue documentación' },
+    { k:'amarillo', t:'Etapa documental (acreditación documental / impositiva)' },
+    { k:'azul',     t:'Auditoría en terreno' },
+    { k:'verde',    t:'Contratado o avanzado (secretaría, conformidad, firma, SAP)' },
     { k:'rojo',     t:'Rechazado o cerrado en negativo' }
   ];
 
@@ -27851,13 +27851,13 @@ body.admin-system-mode #tab-panorama
       colOfr.appendChild(tr);
     });
     /* Resumen de una línea */
-    var _semTxt={azul:'en terreno',verde:'auditado / contratado',amarillo:'pend. documental',naranja:'falta cargar doc.',rojo:'cerrado negativo',gris:'sin clasificar'};
+    var _semTxt={naranja:'falta cargar doc.',amarillo:'etapa documental',azul:'auditoría en terreno',verde:'contratado / avanzado',rojo:'cerrado negativo',gris:'sin clasificar'};
     var _semCol={azul:'#1d4ed8',verde:'#0f766e',amarillo:'#ca8a04',naranja:'#ea580c',rojo:'#b91c1c',gris:'#94a3b8'};
     var _res=$e('ovrResumen');
     if(_res){
       var partes=['<b style="color:#1e293b;">'+b.mods.length+' módulo'+(b.mods.length!==1?'s':'')+' ofrecido'+(b.mods.length!==1?'s':'')+'</b>'];
       window.__ovrSemFiltro=new Set();
-      ['verde','azul','amarillo','naranja','rojo','gris'].forEach(function(k){ if(_semCount[k]) partes.push('<button type="button" class="ovr-sem-chip" data-sem="'+k+'" onclick="window.__ovrToggleSem(\''+k+'\')" title="Filtrar: mostrar y seleccionar solo los módulos en este estado" style="border:1.5px solid '+_semCol[k]+';background:#fff;color:'+_semCol[k]+';border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+_semCol[k]+';"></span>'+_semCount[k]+' '+_semTxt[k]+'</button>'); });
+      ['naranja','amarillo','azul','verde','rojo','gris'].forEach(function(k){ if(_semCount[k]) partes.push('<button type="button" class="ovr-sem-chip" data-sem="'+k+'" onclick="window.__ovrToggleSem(\''+k+'\')" title="Filtrar: mostrar y seleccionar solo los módulos en este estado" style="border:1.5px solid '+_semCol[k]+';background:#fff;color:'+_semCol[k]+';border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+_semCol[k]+';"></span>'+_semCount[k]+' '+_semTxt[k]+'</button>'); });
       window.__ovrViaFiltro=false; window.__ovrHabFiltro=false;
       if(via375.length) partes.push('<button type="button" class="ovr-flag-chip" data-flag="via" onclick="window.__ovrToggleFlag(\'via\')" title="'+esc('Filtrar: solo los módulos que la RE 375/26 exige (viabilizadores). '+(window.__ovrViaTip||''))+'" style="border:1.5px solid #b45309;background:#fff;color:#b45309;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><i class="fa-solid fa-bolt" style="font-size:9px;"></i>'+via375.length+' viabilizador'+(via375.length!==1?'es':'')+' RE375</button>');
       if(hasPadronLoaded()) partes.push(_nHab?'<button type="button" class="ovr-flag-chip" data-flag="hab" onclick="window.__ovrToggleFlag(\'hab\')" title="Filtrar: solo los módulos que este prestador ya tiene habilitados en el padrón de esta UGL" style="border:1.5px solid #dc2626;background:#fff;color:#dc2626;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><i class="fa-solid fa-triangle-exclamation" style="font-size:9px;"></i>'+_nHab+' ya habilitado'+(_nHab!==1?'s':'')+' en padrón</button>':'<span style="color:#16a34a;font-weight:800;"><i class="fa-solid fa-circle-check" style="font-size:9px;"></i> ninguno habilitado aún</span>');
@@ -28810,9 +28810,9 @@ body.admin-system-mode #tab-panorama
         });
         html+='</div>';
         /* Mini leyenda: solo los colores presentes en esta boca, con su conteo */
-        var _semTxt={azul:'en terreno',verde:'auditado / contratado',amarillo:'pend. documental',naranja:'falta cargar doc.',rojo:'cerrado negativo',gris:'sin clasificar'};
+        var _semTxt={naranja:'falta cargar doc.',amarillo:'etapa documental',azul:'auditoría en terreno',verde:'contratado / avanzado',rojo:'cerrado negativo',gris:'sin clasificar'};
         var _semCol={azul:'#1d4ed8',verde:'#0f766e',amarillo:'#ca8a04',naranja:'#ea580c',rojo:'#b91c1c',gris:'#94a3b8'};
-        var _semOrd=['verde','azul','amarillo','naranja','rojo','gris'].filter(function(k){return _semCount[k];});
+        var _semOrd=['naranja','amarillo','azul','verde','rojo','gris'].filter(function(k){return _semCount[k];});
         if(_semOrd.length) html+='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:9px;color:#64748b;font-weight:700;">'
           +_semOrd.map(function(k){return '<span><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+_semCol[k]+';margin-right:4px;vertical-align:middle;"></span>'+_semCount[k]+' '+_semTxt[k]+'</span>';}).join('')+'</div>';
         html+='</div>';
