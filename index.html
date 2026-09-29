@@ -5616,7 +5616,7 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
       new MutationObserver(sync).observe(document.body,{attributes:true,subtree:true,attributeFilter:['class','style']});
     });
   })();
-  window.__PADRON_BUILD = "2026-09-29.16 (boca en 3 columnas)";
+  window.__PADRON_BUILD = "2026-09-29.17 (animación de filas + habilitado por boca)";
   try{ console.log("%c[padrón] build "+window.__PADRON_BUILD, "color:#7c3aed;font-weight:bold"); }catch(_){}
   window.__fechaOfrSplit = function(s){
     s = safeStr(s); if(!s) return null;
@@ -27875,7 +27875,7 @@ body.admin-system-mode #tab-panorama
       var nombre=(m.modDesc||(mc?mc.d:'')||'');
       /* Boca declarada en ESTE ofrecimiento vs. la boca de la card (pueden diferir si el unificador juntó variantes) */
       var _ndv=function(t){return String(t||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');};
-      var _mismaDir=!m.direccion||_ndv(m.direccion)===_ndv(b.direccion)||(typeof window.__DIR==='function'&&window.__DIR(m.direccion)===window.__DIR(b.direccion));
+      var _mismaDir=!m.direccion||_ndv(m.direccion)===_ndv(b.direccion)||(window.__DIR&&window.__DIR.clave&&window.__DIR.clave(m.direccion)===window.__DIR.clave(b.direccion));
       var _bocaCell='<div style="font-size:11px;font-weight:700;color:#1e293b;white-space:normal;">'+esc(m.bate||_bocaNombre||'—')+'</div>'
         +'<div style="font-size:10px;color:#64748b;white-space:normal;"'+(_mismaDir?'':' title="Escrito distinto en este ofrecimiento; el unificador de direcciones lo reconoce como el mismo domicilio de la boca"')+'>'+(_mismaDir?'':'<span style="color:#94a3b8;margin-right:3px;">≈</span>')+esc(m.direccion||b.direccion||'')+(m.localidad&&m.localidad!==b.localidad?' · '+esc(m.localidad):'')+'</div>';
       var fechas=(m.fechaInicio||m.fechaEstado)&&window.__fechaOfrRango
@@ -28644,6 +28644,46 @@ body.admin-system-mode #tab-panorama
   /* Colapso por oferente. La clave es legajo/CUIT, estable ante filtros y reordenamientos. */
   window.__ofrColapsar = true;
   window.__ofrEntAbiertas = {};
+  /* ══ Refinar "ya habilit.": comparar la boca ofrecida contra las bocas habilitadas del CUIT ══
+     El índice rápido (__padronModsByCuit) dice qué módulos tiene el CUIT en TODO el padrón, sin UGL ni domicilio.
+     Acá se pide al worker (una vez por CUIT, cacheado) el detalle de bocas por módulo y se clasifica:
+       misma boca (misma UGL y mismo domicilio) · otra boca de la UGL · otra UGL. */
+  window.__ofrPadCuitCache = window.__ofrPadCuitCache || {};
+  window.__ofrRefinarPadron = function(){
+    if(!window.__worker || typeof wReq!=='function') return;
+    var rows=[...document.querySelectorAll('#ofrVistaBatesGrid .ofr-boca-clickable[data-dup]')].filter(function(r){ return parseInt(r.getAttribute('data-dup')||'0',10)>0; });
+    var porCuit={}; rows.forEach(function(r){ var c=r.getAttribute('data-cuit'); if(!c) return; (porCuit[c]=porCuit[c]||[]).push(r); });
+    Object.keys(porCuit).forEach(function(cn){
+      var pintar=function(data){ porCuit[cn].forEach(function(r){ window.__ofrPintarPadBoca(r, data); }); };
+      if(window.__ofrPadCuitCache[cn]){ pintar(window.__ofrPadCuitCache[cn]); return; }
+      wReq('queryPadronCuit',{cuit:cn},function(msg){ window.__ofrPadCuitCache[cn]=msg||{}; pintar(msg||{}); });
+    });
+  };
+  window.__ofrPintarPadBoca = function(row, padData){
+    var ei=parseInt(row.getAttribute('data-ei'),10), bi=parseInt(row.getAttribute('data-bi'),10);
+    var ents=window.__ofrEntidades||[]; var b=ents[ei]&&ents[ei].batesArr[bi]; if(!b) return;
+    var holder=document.getElementById('ofrPadB_'+ei+'_'+bi); if(!holder) return;
+    var clave=function(t){ try{ return (window.__DIR&&window.__DIR.clave)?window.__DIR.clave(t):String(t||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }catch(e){ return String(t||'').toUpperCase(); } };
+    var kBoca=clave(b.direccion||''), ugl=String(b.uglId||'');
+    var misma=[], otraBoca=[], otraUgl=[], desde='';
+    (b.mods||[]).forEach(function(m){
+      var mid=String(m.moduloId); var info=padData&&padData.mods&&padData.mods[mid]; if(!info) return;
+      var bocas=info.bocas||[]; var cls='';
+      bocas.forEach(function(bc){
+        var u=String(bc.uglKey||'').split('-')[0].trim();
+        if(u===ugl){ var k=clave((bc.calle||'')+' '+(bc.puerta||'')); if(k&&k===kBoca){ cls='misma'; if(bc.inicio&&!desde) desde=bc.inicio; } else if(cls!=='misma') cls='otraBoca'; }
+        else if(!cls) cls='otraUgl';
+      });
+      if(cls==='misma') misma.push(mid); else if(cls==='otraBoca') otraBoca.push(mid); else if(cls==='otraUgl') otraUgl.push(mid);
+    });
+    var partes=[];
+    if(misma.length) partes.push('<span title="Ya habilitado en ESTA misma boca (UGL '+esc(ugl)+', '+esc(b.direccion||'')+')'+(desde?' · desde '+esc(desde):'')+': mód. '+esc(misma.join(', '))+'" style="background:rgba(220,38,38,.15);color:#dc2626;border:1px solid rgba(220,38,38,.28);border-radius:5px;padding:1px 6px;font-size:9px;font-weight:900;white-space:nowrap;">⚠ '+misma.length+' habilit. misma boca'+(desde?' <span style="font-weight:600;opacity:.8;">desde '+esc(desde)+'</span>':'')+'</span>');
+    if(otraBoca.length) partes.push('<span title="Habilitado en la misma UGL pero en OTRO domicilio (posible boca nueva): mód. '+esc(otraBoca.join(', '))+'" style="background:rgba(245,158,11,.15);color:#b45309;border:1px solid rgba(245,158,11,.35);border-radius:5px;padding:1px 6px;font-size:9px;font-weight:900;white-space:nowrap;">'+otraBoca.length+' habilit. en otra boca de la UGL</span>');
+    if(otraUgl.length) partes.push('<span title="Habilitado solo en otra UGL: mód. '+esc(otraUgl.join(', '))+'" style="background:rgba(30,64,175,.08);color:#1e40af;border:1px solid rgba(30,64,175,.22);border-radius:5px;padding:1px 6px;font-size:9px;font-weight:800;white-space:nowrap;">'+otraUgl.length+' habilit. en otra UGL</span>');
+    if(!partes.length) return;
+    holder.removeAttribute('title');
+    holder.innerHTML='<span style="display:inline-flex;flex-direction:column;align-items:flex-end;gap:3px;">'+partes.join('')+'</span>';
+  };
   /* Filtro de UGL dentro de la card del oferente (persiste entre re-renders por clave de oferente) */
   window.__ofrUglCardFiltro = window.__ofrUglCardFiltro || {};
   window.__ofrAplicarUglCard = function(k){
@@ -28656,7 +28696,7 @@ body.admin-system-mode #tab-panorama
     var nb=0,nm=0;
     body.querySelectorAll('.ofr-boca-clickable').forEach(function(row){
       var vis=!activo||f.has(row.getAttribute('data-ugl'));
-      row.style.display=vis?'':'none';
+      window.__ofrAnimarFila(row, vis);
       if(vis){ nb++; nm+=parseInt(row.getAttribute('data-nmods')||'0',10); }
     });
     var cnt=document.getElementById('ofrEntCnt_'+k);
@@ -28670,9 +28710,29 @@ body.admin-system-mode #tab-panorama
     var f=window.__ofrUglCardFiltro[k]||(window.__ofrUglCardFiltro[k]=new Set());
     if(f.has(ugl)) f.delete(ugl); else f.add(ugl);
     if(!window.__ofrEntAbiertas[k]) window.__ofrToggleEnt(k);   /* si estaba plegada, se abre para mostrar el resultado */
-    var body=document.getElementById('ofrEnt_'+k);
-    if(body){ body.style.transition='opacity .18s'; body.style.opacity='0'; setTimeout(function(){ window.__ofrAplicarUglCard(k); body.style.opacity='1'; }, 60); }
-    else window.__ofrAplicarUglCard(k);
+    window.__ofrAplicarUglCard(k);
+  };
+  /* Mostrar/ocultar una fila de boca animando alto y opacidad (sin saltos). Las filas visibles no se tocan. */
+  window.__ofrAnimarFila=function(row, vis){
+    var oculta=row.getAttribute('data-oculta')==='1';
+    if(vis===!oculta) return;
+    row.style.overflow='hidden';
+    row.style.transition='max-height .28s ease, opacity .22s ease, padding-top .28s ease, padding-bottom .28s ease, border-width .28s ease';
+    if(!vis){
+      row.style.maxHeight=row.scrollHeight+'px';
+      requestAnimationFrame(function(){ requestAnimationFrame(function(){
+        row.style.maxHeight='0px'; row.style.opacity='0'; row.style.paddingTop='0px'; row.style.paddingBottom='0px'; row.style.borderBottomWidth='0px';
+      }); });
+      row.setAttribute('data-oculta','1');
+    } else {
+      row.removeAttribute('data-oculta');
+      row.style.paddingTop=''; row.style.paddingBottom=''; row.style.borderBottomWidth='';
+      row.style.maxHeight='0px'; row.style.opacity='0';
+      requestAnimationFrame(function(){ requestAnimationFrame(function(){
+        row.style.maxHeight=row.scrollHeight+'px'; row.style.opacity='1';
+        setTimeout(function(){ if(row.getAttribute('data-oculta')!=='1'){ row.style.maxHeight=''; row.style.overflow=''; } }, 320);
+      }); });
+    }
   };
   window.__ofrToggleEnt = function(k){
     window.__ofrEntAbiertas[k] = !window.__ofrEntAbiertas[k];
@@ -28874,7 +28934,7 @@ body.admin-system-mode #tab-panorama
         var bocaMods=chipFilter?b.mods.filter(function(m){return chipFilter.has(m.estado);}):b.mods;
         var bocaVisible=bocaMods.length>0||!chipFilter;
         if(!bocaVisible)return; // con filtro de chip activo, ocultar por completo las bocas que no aplican
-        html+='<div class="ofr-boca-clickable" data-ei="'+ei+'" data-bi="'+bi+'" data-boca-vis="1" data-ugl="'+esc(String(b.uglId||''))+'" data-nmods="'+bocaMods.length+'" style="transition:opacity .18s;padding:9px 16px;border-bottom:1px solid rgba(124,58,237,.07);background:'+(bi%2===0?'#fdfdff':'#faf7ff')+';cursor:pointer;">';
+        html+='<div class="ofr-boca-clickable" data-ei="'+ei+'" data-bi="'+bi+'" data-boca-vis="1" data-ugl="'+esc(String(b.uglId||''))+'" data-nmods="'+bocaMods.length+'" data-cuit="'+esc((b.cuit||'').replace(/[^0-9]/g,''))+'" data-dir="'+esc(b.direccion||'')+'" data-dup="'+dupN+'" style="transition:opacity .18s;padding:9px 16px;border-bottom:1px solid rgba(124,58,237,.07);background:'+(bi%2===0?'#fdfdff':'#faf7ff')+';cursor:pointer;">';
         html+='<div style="display:flex;align-items:flex-start;gap:18px;">';
         /* Col 1 — datos de la boca. La UGL ya está en la card; con varias UGL va como etiqueta chica junto al domicilio */
         var _multiUgl=(function(){var st={};ent.batesArr.forEach(function(x){st[String(x.uglId||'')]=1;});return Object.keys(st).length>1;})();
@@ -28890,8 +28950,8 @@ body.admin-system-mode #tab-panorama
         /* Col 2 — módulos por categoría y leyenda (ocupa el espacio central) */
         html+='<div style="flex:1;min-width:0;">';
         var ultMovBoca=(function(){var best=null,bestTs=0;bocaMods.forEach(function(m){var ts=m.fechaEstadoTs||0;if(ts>bestTs){bestTs=ts;best=m.fechaEstado;}});return best;})();
-        var ultMovBadge=ultMovBoca?'<span title="Último movimiento en esta boca: '+esc(ultMovBoca)+'" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:5px;padding:1px 6px;font-size:9px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;"><i class="fa-regular fa-clock" style="font-size:8px;margin-right:3px;opacity:.7;"></i>'+esc(window.__fechaOfrCorta?window.__fechaOfrCorta(ultMovBoca):ultMovBoca)+'</span>':'';
-        var _badgesHTML='<div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px;">'+ultMovBadge+padBadge+'</div>';
+        var ultMovBadge=ultMovBoca?'<span title="Último movimiento del ofrecimiento en esta boca: '+esc(ultMovBoca)+' (no es la fecha de habilitación)" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:5px;padding:1px 6px;font-size:9px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;"><i class="fa-regular fa-clock" style="font-size:8px;margin-right:3px;opacity:.7;"></i>'+esc(window.__fechaOfrCorta?window.__fechaOfrCorta(ultMovBoca):ultMovBoca)+'</span>':'';
+        var _badgesHTML='<div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px;">'+ultMovBadge+'<span id="ofrPadB_'+ei+'_'+bi+'" title="Módulos que este CUIT ya tiene habilitados en el padrón (se está verificando en qué UGL y en qué boca)">'+padBadge+'</span></div>';
         /* Módulos agrupados por CATEGORÍA (del nomenclador) para que se entienda sin saber el número */
         var _grupos={}, _orden=[], _semCount={};
         b.mods.forEach(function(m){
@@ -28930,6 +28990,7 @@ body.admin-system-mode #tab-panorama
     });
     grid.innerHTML=html;
     if(window.__ofrAplicarUglCards) window.__ofrAplicarUglCards();
+    if(window.__ofrRefinarPadron) window.__ofrRefinarPadron();
     /* Un clic en un enlace o botón del encabezado no debe plegar la card */
     grid.querySelectorAll('a,button').forEach(function(el){
       el.addEventListener('click', function(ev){ ev.stopPropagation(); });
