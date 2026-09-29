@@ -5595,7 +5595,7 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
       new MutationObserver(sync).observe(document.body,{attributes:true,subtree:true,attributeFilter:['class','style']});
     });
   })();
-  window.__PADRON_BUILD = "2026-09-29.9 (visor: filtros por estado, boca por fila, scroll lock)";
+  window.__PADRON_BUILD = "2026-09-29.10 (visor: alto fijo)";
   try{ console.log("%c[padrón] build "+window.__PADRON_BUILD, "color:#7c3aed;font-weight:bold"); }catch(_){}
   window.__fechaOfrSplit = function(s){
     s = safeStr(s); if(!s) return null;
@@ -27437,7 +27437,7 @@ body.admin-system-mode #tab-panorama
 </script>
 <!-- ══ OFR VISOR MODAL ══ -->
 <div id="ofrVisorModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:19000;align-items:flex-start;justify-content:center;padding:16px 10px;overflow-y:auto;">
-  <div style="background:#fff;border-radius:18px;max-width:1180px;width:100%;margin:auto;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);display:flex;flex-direction:column;max-height:calc(100vh - 32px);">
+  <div style="background:#fff;border-radius:18px;max-width:1180px;width:100%;margin:auto;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);display:flex;flex-direction:column;height:calc(100vh - 32px);">
     <!-- Header -->
     <div id="ovrHead" style="background:linear-gradient(135deg,#1a0f3d,#2d1b69);padding:16px 22px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-shrink:0;">
       <div style="min-width:0;">
@@ -27470,7 +27470,7 @@ body.admin-system-mode #tab-panorama
             <th style="text-align:left;padding:10px 8px 8px;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #e2e8f0;width:250px;">Situación en padrón</th>
           </tr>
         </thead>
-        <tbody id="ovrColOfr"></tbody>
+        <tbody id="ovrColOfr" style="transition:opacity .18s ease;"></tbody>
       </table>
       <div id="ovrColPad" style="display:none;"></div>
       <div id="ovrLoading" style="display:none;text-align:center;padding:10px;color:#9ca3af;font-size:11px;">
@@ -27838,7 +27838,7 @@ body.admin-system-mode #tab-panorama
       var _ndv=function(t){return String(t||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');};
       var _mismaDir=!m.direccion||_ndv(m.direccion)===_ndv(b.direccion)||(typeof window.__DIR==='function'&&window.__DIR(m.direccion)===window.__DIR(b.direccion));
       var _bocaCell='<div style="font-size:11px;font-weight:700;color:#1e293b;white-space:normal;">'+esc(m.bate||_bocaNombre||'—')+'</div>'
-        +'<div style="font-size:10px;color:'+(_mismaDir?'#64748b':'#b45309')+';white-space:normal;">'+(_mismaDir?'':'<i class="fa-solid fa-triangle-exclamation" style="font-size:8px;margin-right:3px;" title="Este ofrecimiento declara un domicilio distinto al de la card; el unificador lo agrupó como la misma boca"></i>')+esc(m.direccion||b.direccion||'')+(m.localidad&&m.localidad!==b.localidad?' · '+esc(m.localidad):'')+'</div>';
+        +'<div style="font-size:10px;color:#64748b;white-space:normal;"'+(_mismaDir?'':' title="Escrito distinto en este ofrecimiento; el unificador de direcciones lo reconoce como el mismo domicilio de la boca"')+'>'+(_mismaDir?'':'<span style="color:#94a3b8;margin-right:3px;">≈</span>')+esc(m.direccion||b.direccion||'')+(m.localidad&&m.localidad!==b.localidad?' · '+esc(m.localidad):'')+'</div>';
       var fechas=(m.fechaInicio||m.fechaEstado)&&window.__fechaOfrRango
         ? window.__fechaOfrRango(m.fechaInicio,m.fechaEstado,'#475569')
         : '<span style="color:#94a3b8;">'+esc(m.mesInicio||'')+(m.mesEstado&&m.mesEstado!==m.mesInicio?' → '+esc(m.mesEstado):'')+'</span>';
@@ -28151,6 +28151,9 @@ body.admin-system-mode #tab-panorama
       ch.style.background=on?col:'#fff'; ch.style.color=on?'#fff':col; ch.style.opacity=(activo&&!on)?'.45':'1';
       var dot=ch.querySelector('span'); if(dot) dot.style.background=on?'#fff':col;
     });
+    var tb=document.getElementById('ovrColOfr'); if(tb){ tb.style.opacity='0'; }
+    var scroller=tb&&tb.closest('div[style*="overflow-y"]'); if(scroller) scroller.scrollTop=0;
+    setTimeout(function(){ if(tb) tb.style.opacity='1'; }, 60);
     var grpVis={};
     document.querySelectorAll('#ovrColOfr tr.ovr-mod-row').forEach(function(tr){
       var vis=!activo||f.has(tr.getAttribute('data-sem'));
