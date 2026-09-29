@@ -139,7 +139,7 @@ PARTE 1/3 — HTML + CSS (hasta inicio de <main> y tabs)
 
     .tabs{
       display:flex; gap:6px; flex-wrap:wrap;
-      position:sticky; top:var(--header-h,0px); z-index:72;
+      position:sticky; top:var(--tabs-top, var(--header-h,0px)); z-index:72;
       background:var(--bg,#f0f4f9);
       padding:8px 2px 8px;
       margin:0 -18px 12px;   /* sangría negativa para cubrir el padding de main */
@@ -3847,6 +3847,27 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
               </div>
             </div>
 
+            <!-- Período (fecha de inicio del ofrecimiento o del último movimiento) -->
+            <div id="ofrPeriodoWrap" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;background:#fff;border:1.5px solid #d6e0f0;border-radius:10px;padding:6px 10px;">
+              <span style="font-size:10px;font-weight:900;color:#1f5fbf;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;"><i class="fa-regular fa-clock"></i> Período</span>
+              <select id="ofrFechaCampo" title="Sobre qué fecha se aplica el rango" style="border:1px solid #d6e0f0;border-radius:7px;background:#f8fafc;color:#1e3a5f;font-size:11px;font-weight:800;padding:5px 8px;cursor:pointer;font-family:inherit;">
+                <option value="estado">Último movimiento</option>
+                <option value="inicio">Inicio del ofrecimiento</option>
+              </select>
+              <label style="font-size:11px;color:#64748b;font-weight:700;display:inline-flex;align-items:center;gap:5px;">desde <input type="date" id="ofrFechaDesde" style="border:1px solid #d6e0f0;border-radius:7px;padding:4px 6px;font-size:11px;font-family:inherit;color:#1e3a5f;"></label>
+              <label style="font-size:11px;color:#64748b;font-weight:700;display:inline-flex;align-items:center;gap:5px;">hasta <input type="date" id="ofrFechaHasta" style="border:1px solid #d6e0f0;border-radius:7px;padding:4px 6px;font-size:11px;font-family:inherit;color:#1e3a5f;"></label>
+              <span style="width:1px;height:18px;background:#e2e8f0;"></span>
+              <span style="display:inline-flex;gap:4px;flex-wrap:wrap;">
+                <button type="button" class="ofr-per-atajo" data-atajo="hoy" style="border:1px solid #d6e0f0;background:#f8fafc;color:#475569;border-radius:999px;padding:3px 9px;font-size:10px;font-weight:800;cursor:pointer;">Hoy</button>
+                <button type="button" class="ofr-per-atajo" data-atajo="7d" style="border:1px solid #d6e0f0;background:#f8fafc;color:#475569;border-radius:999px;padding:3px 9px;font-size:10px;font-weight:800;cursor:pointer;">Últimos 7 días</button>
+                <button type="button" class="ofr-per-atajo" data-atajo="30d" style="border:1px solid #d6e0f0;background:#f8fafc;color:#475569;border-radius:999px;padding:3px 9px;font-size:10px;font-weight:800;cursor:pointer;">Últimos 30 días</button>
+                <button type="button" class="ofr-per-atajo" data-atajo="mes" style="border:1px solid #d6e0f0;background:#f8fafc;color:#475569;border-radius:999px;padding:3px 9px;font-size:10px;font-weight:800;cursor:pointer;">Este mes</button>
+                <button type="button" class="ofr-per-atajo" data-atajo="mesant" style="border:1px solid #d6e0f0;background:#f8fafc;color:#475569;border-radius:999px;padding:3px 9px;font-size:10px;font-weight:800;cursor:pointer;">Mes anterior</button>
+                <button type="button" class="ofr-per-atajo" data-atajo="clear" title="Quitar el rango de fechas" style="border:1px solid #fecaca;background:#fff;color:#b91c1c;border-radius:999px;padding:3px 9px;font-size:10px;font-weight:800;cursor:pointer;"><i class="fa-solid fa-eraser" style="font-size:9px;"></i></button>
+              </span>
+              <span id="ofrPeriodoHint" style="font-size:10px;color:#94a3b8;margin-left:auto;">Usa la fecha y hora exacta de la base POPP; si un ofrecimiento no la trae, se toma el mes.</span>
+            </div>
+
             <!-- Opciones adicionales -->
             <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
               <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:11px;font-weight:700;color:#475569;">
@@ -5595,7 +5616,7 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
       new MutationObserver(sync).observe(document.body,{attributes:true,subtree:true,attributeFilter:['class','style']});
     });
   })();
-  window.__PADRON_BUILD = "2026-09-29.13 (etapas del circuito)";
+  window.__PADRON_BUILD = "2026-09-29.14 (solapas sticky con zoom + filtro de período)";
   try{ console.log("%c[padrón] build "+window.__PADRON_BUILD, "color:#7c3aed;font-weight:bold"); }catch(_){}
   window.__fechaOfrSplit = function(s){
     s = safeStr(s); if(!s) return null;
@@ -11269,6 +11290,23 @@ function searchPrest(q, filters, maxItems){
             const bateQ = safeStr(msg.textoBate||"").toUpperCase().trim();
             const anioQ = parseInt(msg.anio||0,10)||0;
             const tipoPersonaQ = safeStr(msg.tipoPersona||"").trim();
+            /* Rango de fechas sobre inicio o último movimiento. Usa el timestamp exacto de las
+               columnas nuevas; si el registro no lo trae, aproxima con el mes (YYYYMM → día 1 / fin de mes). */
+            const fCampoQ = (msg.fechaCampo==='inicio') ? 'inicio' : 'estado';
+            const _pIso = (v,fin)=>{ const m=safeStr(v).match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m) return 0; return fin ? new Date(+m[1],+m[2]-1,+m[3],23,59,59,999).getTime() : new Date(+m[1],+m[2]-1,+m[3],0,0,0,0).getTime(); };
+            const fDesdeQ = _pIso(msg.fechaDesde,false), fHastaQ = _pIso(msg.fechaHasta,true);
+            const _tsRec = (rec)=>{
+              if (fCampoQ==='inicio'){
+                if (rec.fechaInicioTs) return rec.fechaInicioTs;
+                const p=(''+safeStr(rec.mesInicio)).toUpperCase().replace(/\bDE\b/g,' ').trim().split(/\s+/); let mo=0,yr=0;
+                const MESES_A={ENERO:1,FEBRERO:2,MARZO:3,ABRIL:4,MAYO:5,JUNIO:6,JULIO:7,AGOSTO:8,SEPTIEMBRE:9,SETIEMBRE:9,OCTUBRE:10,NOVIEMBRE:11,DICIEMBRE:12};
+                p.forEach(t=>{ if(MESES_A[t])mo=MESES_A[t]; const n=parseInt(t,10); if(n>1900&&n<2100)yr=n; });
+                return yr ? new Date(yr,(mo||1)-1,1).getTime() : 0;
+              }
+              if (rec.fechaEstadoTs) return rec.fechaEstadoTs;
+              const n=rec.mesEstadoN||0; if(!n) return 0;
+              return new Date(Math.floor(n/100), (n%100||1)-1, 1).getTime();
+            };
             const MAX   = 3000;
             const results = [];
             if (store.ofr){
@@ -11289,6 +11327,7 @@ function searchPrest(q, filters, maxItems){
                   if(!hayB.includes(bateQ)) return;
                 }
                 if(anioQ){ const ma=safeStr(rec.mesInicio||"").toUpperCase(); if(!ma.includes(String(anioQ))) return; }
+                if(fDesdeQ||fHastaQ){ const ts=_tsRec(rec); if(!ts) return; if(fDesdeQ&&ts<fDesdeQ) return; if(fHastaQ&&ts>fHastaQ) return; }
                 results.push(rec);
               });
             }
@@ -11296,7 +11335,7 @@ function searchPrest(q, filters, maxItems){
             // Si hay texto libre → ordenar por nombre (diversidad de UGLs)
             // Si hay filtros de UGL → ordenar por UGL luego nombre
             // Si no hay filtros ni texto → retornar vacío (evitar 3000 de UGL 0)
-            const hayFiltros = uglsQ.size||estQ.size||locsQ.size||modsQ.size||bateQ||anioQ;
+            const hayFiltros = uglsQ.size||estQ.size||locsQ.size||modsQ.size||bateQ||anioQ||fDesdeQ||fHastaQ;
             if(!hayFiltros && !textoQ){
               self.postMessage({ ok:true, type:"ofrFiltrado", records:[], capped:false, maxCap:MAX,
                 cuitModDetails:{}, cuitRE375:{}, sinFiltros:true, reqId: msg.reqId||"" });
@@ -18096,7 +18135,7 @@ function openUGLModal(res, keepSelection){
   body.admin-system-mode #adminConfigPanel .admin-config-note{ color:rgba(255,255,255,.72); font-size:11px; margin-top:10px; }
 
   body.admin-system-mode .tabs{
-    position:sticky; top:var(--header-h,76px); z-index:72;
+    position:sticky; top:var(--tabs-top, var(--header-h,76px)); z-index:72;
     background:linear-gradient(180deg,#f8fafc 0%,#ffffff 100%);
     box-shadow:0 1px 0 rgba(8,25,54,.06);
     border-bottom:1px solid rgba(59,130,246,.12);
@@ -28257,7 +28296,10 @@ body.admin-system-mode #tab-panorama
     var texto=($e('ofrVistaBusca')||{value:''}).value.trim();
     var textoBate=($e('ofrBuscaBate')||{value:''}).value.trim();
     var anioGlobal=($e('ofrGlobalYear')||{value:''}).value;
-    var hayFiltros=sel.ugls.size||sel.estados.size||sel.cats.size||sel.locs.size||sel.mods.size||texto||textoBate||anioGlobal||__soloVia375;
+    var fechaCampo=($e('ofrFechaCampo')||{value:'estado'}).value||'estado';
+    var fechaDesde=($e('ofrFechaDesde')||{value:''}).value||'';
+    var fechaHasta=($e('ofrFechaHasta')||{value:''}).value||'';
+    var hayFiltros=sel.ugls.size||sel.estados.size||sel.cats.size||sel.locs.size||sel.mods.size||texto||textoBate||anioGlobal||__soloVia375||fechaDesde||fechaHasta;
     var cnt=$e('ofrVistaCount'),grid=$e('ofrVistaBatesGrid'),empty=$e('ofrVistaEmpty');
     // Sin filtros: se permite (trae el total) para el análisis global. Solo se bloquea el caso de "solo viabilizadores" sin acotar.
     // Solo viabilizadores requiere al menos UGL o texto para acotar resultados
@@ -28284,6 +28326,7 @@ body.admin-system-mode #tab-panorama
       if(sel.locs.size) partes.push('<b>Localidades:</b> '+sel.locs.size+' seleccionadas');
       if(sel.mods.size) partes.push('<b>Módulos:</b> '+sel.mods.size+' seleccionados');
       if(__soloVia375) partes.push('<b><i class="fa-solid fa-bolt" style="color:#f59e0b;"></i> Solo viabilizadores RE375</b>');
+      if(fechaDesde||fechaHasta){ var _fd=function(v){ if(!v)return '';var p=v.split('-');return p[2]+'/'+p[1]+'/'+p[0]; }; partes.push('<b><i class="fa-regular fa-clock"></i> '+(fechaCampo==='inicio'?'Inicio':'Últ. movimiento')+':</b> '+(fechaDesde?'desde '+_fd(fechaDesde):'')+(fechaDesde&&fechaHasta?' ':'')+(fechaHasta?'hasta '+_fd(fechaHasta):'')); }
       if(!__incluyeProv) partes.push('<span style="color:#94a3b8;">Proveedores excluidos</span>');
       if(partes.length){res.innerHTML='<i class="fa-solid fa-filter" style="margin-right:6px;"></i>Filtros activos: '+partes.join(' &nbsp;·&nbsp; ');res.style.display='';}
       else res.style.display='none';
@@ -28292,7 +28335,8 @@ body.admin-system-mode #tab-panorama
       uglIds:[...sel.ugls],estados:[...sel.estados],localidades:[...sel.locs],
       modulos:buildModsQ(),texto:texto,excluirModIds:buildExclMods(),
       tipoPersona:($e('ofrSelTipoPersona')||{value:''}).value,
-      textoBate:textoBate, anio:anioGlobal
+      textoBate:textoBate, anio:anioGlobal,
+      fechaCampo:fechaCampo, fechaDesde:fechaDesde, fechaHasta:fechaHasta
     },function(msg){
       if(msg.sinFiltros){
         if(cnt)cnt.textContent='Sin filtros: el listado no se muestra por su extensión, pero podés ver el análisis global en la solapa "Analizar".';
@@ -28515,6 +28559,29 @@ body.admin-system-mode #tab-panorama
   function groupByEntidad(records){var map=new Map();var UNI=unificadorDirecciones(records);records.forEach(function(r){var ek=r.legajo||r.cuit||'?';if(!map.has(ek))map.set(ek,{cuit:r.cuit||'',legajo:r.legajo||'',nombre:r.nombre||'',batesMap:new Map()});var g=map.get(ek);var dirN=normDir(r.direccion||'');var fk=unificarActivo()?((r.uglId||'')+'|'+(UNI(r.direccion||r.bate||'')||'NODIR')):fuzzyDirKey(r.uglId,dirN);var bk=fk||((r.uglId||'')+'|'+(dirN||'NODIR|'+nd(r.bate||'')));if(!g.batesMap.has(bk)){var bateName=r.bate||'';g.batesMap.set(bk,{cuit:r.cuit,legajo:r.legajo,nombre:r.nombre,uglId:r.uglId,uglDesc:r.uglDesc,bate:bateName,bateNames:new Set([bateName]),direccion:r.direccion||'',localidad:r.localidad,mods:[]});}var bObj=g.batesMap.get(bk);if(r.bate&&r.bate!==bObj.bate)bObj.bateNames.add(r.bate);bObj.mods.push(r);});var arr=[];map.forEach(function(v){var bA=[];v.batesMap.forEach(function(b){b.bateNamesArr=[...b.bateNames].filter(Boolean);bA.push(b);});bA.sort(function(a,b){return parseInt(a.uglId||999,10)-parseInt(b.uglId||999,10);});arr.push({cuit:v.cuit,legajo:v.legajo,nombre:v.nombre,batesArr:bA});});arr.sort(function(a,b){return(a.nombre||'').localeCompare(b.nombre||'');});return arr;}
   window.__ofrChipFilter=new Set();
   window.__ofrToggleChip=function(estado){if(!window.__ofrChipFilter)window.__ofrChipFilter=new Set();if(window.__ofrChipFilter.has(estado))window.__ofrChipFilter.delete(estado);else window.__ofrChipFilter.add(estado);if(window.__ofrLastRecords)renderGrid(window.__ofrLastRecords,window.__ofrLastCapped,window.__ofrLastMaxCap);};
+  /* Atajos del filtro de período */
+  (function(){
+    var $e=function(id){return document.getElementById(id);};
+    function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+    window.__ofrPintarAtajos=function(){
+      var d=($e('ofrFechaDesde')||{}).value||'', h=($e('ofrFechaHasta')||{}).value||'';
+      var w=$e('ofrPeriodoWrap'); if(w){ w.style.borderColor=(d||h)?'#1f5fbf':'#d6e0f0'; w.style.background=(d||h)?'#eff6ff':'#fff'; }
+    };
+    document.addEventListener('click',function(e){
+      var b=e.target.closest&&e.target.closest('.ofr-per-atajo'); if(!b) return;
+      var a=b.getAttribute('data-atajo'), hoy=new Date(), d=null, h=null;
+      if(a==='hoy'){ d=hoy; h=hoy; }
+      else if(a==='7d'){ d=new Date(hoy); d.setDate(d.getDate()-6); h=hoy; }
+      else if(a==='30d'){ d=new Date(hoy); d.setDate(d.getDate()-29); h=hoy; }
+      else if(a==='mes'){ d=new Date(hoy.getFullYear(),hoy.getMonth(),1); h=hoy; }
+      else if(a==='mesant'){ d=new Date(hoy.getFullYear(),hoy.getMonth()-1,1); h=new Date(hoy.getFullYear(),hoy.getMonth(),0); }
+      var fd=$e('ofrFechaDesde'), fh=$e('ofrFechaHasta');
+      if(fd) fd.value=d?iso(d):''; if(fh) fh.value=h?iso(h):'';
+      window.__ofrPintarAtajos();
+      if(typeof buscar==='function') buscar();
+    });
+    document.addEventListener('change',function(e){ if(e.target&&(e.target.id==='ofrFechaDesde'||e.target.id==='ofrFechaHasta'||e.target.id==='ofrFechaCampo')){ window.__ofrPintarAtajos(); if(typeof buscar==='function') buscar(); } });
+  })();
   window.renderGridLast=function(){if(window.__ofrLastRecords)renderGrid(window.__ofrLastRecords,window.__ofrLastCapped,window.__ofrLastMaxCap);};
 
   /* ══ TOGGLE: realidad del portal vs bocas unificadas ══
@@ -29896,6 +29963,7 @@ body.admin-system-mode #tab-panorama
       });
       msClose();
       var i=$e('ofrVistaBusca');if(i)i.value=''; var ib=$e('ofrBuscaBate');if(ib)ib.value=''; var gy=$e('ofrGlobalYear');if(gy)gy.value='';
+      var fd=$e('ofrFechaDesde');if(fd)fd.value=''; var fh=$e('ofrFechaHasta');if(fh)fh.value=''; if(window.__ofrPintarAtajos)window.__ofrPintarAtajos();
       var i2=$e('ofrModInput');if(i2)i2.value='';
       renderChips();
       // Reset checkboxes viabilizadores + proveedores
@@ -31533,12 +31601,20 @@ body.tab-activa-informes  #adminFiltersShell {
   function setHeaderH(){
     var hdr = document.querySelector('header');
     if(!hdr) return;
-    var hH = hdr.offsetHeight;
+    var hH = hdr.getBoundingClientRect().height;   /* px reales de pantalla */
     document.documentElement.style.setProperty('--header-h', hH + 'px');
-    // Offset combinado para headers de tabla sticky: header + barra de solapas
+    /* <main> lleva "zoom" en pantallas grandes: un "top" en px dentro de main se multiplica
+       por ese zoom, así que la barra de solapas quedaba más abajo que el header y el contenido
+       se veía por la ranura. Se divide por el zoom efectivo de main para que coincidan. */
+    var main = document.querySelector('main');
+    var z = 1;
+    try{ var el = main; while(el && el !== document.documentElement){ z *= (parseFloat(getComputedStyle(el).zoom) || 1); el = el.parentElement; } }catch(e){ z = 1; }
+    if(!(z > 0)) z = 1;
+    document.documentElement.style.setProperty('--tabs-top', (hH / z) + 'px');
+    // Offset combinado para headers de tabla sticky: header + barra de solapas (en unidades de main)
     var tabs = document.querySelector('.tabs');
-    var tabsH = tabs ? tabs.offsetHeight : 0;
-    document.documentElement.style.setProperty('--sticky-top', (hH + tabsH) + 'px');
+    var tabsH = tabs ? tabs.getBoundingClientRect().height / z : 0;
+    document.documentElement.style.setProperty('--sticky-top', (hH / z + tabsH) + 'px');
   }
   setHeaderH();
   window.addEventListener('resize', setHeaderH);
