@@ -5588,7 +5588,7 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
       new MutationObserver(sync).observe(document.body,{attributes:true,subtree:true,attributeFilter:['class']});
     });
   })();
-  window.__PADRON_BUILD = "2026-09-29.6 (UGL en card corregida)";
+  window.__PADRON_BUILD = "2026-09-29.7 (boca: BATE, categorías, leyenda)";
   try{ console.log("%c[padrón] build "+window.__PADRON_BUILD, "color:#7c3aed;font-weight:bold"); }catch(_){}
   window.__fechaOfrSplit = function(s){
     s = safeStr(s); if(!s) return null;
@@ -28709,17 +28709,50 @@ body.admin-system-mode #tab-panorama
         if(!bocaVisible)return; // con filtro de chip activo, ocultar por completo las bocas que no aplican
         html+='<div class="ofr-boca-clickable" data-ei="'+ei+'" data-bi="'+bi+'" data-boca-vis="1" style="padding:9px 16px;border-bottom:1px solid rgba(124,58,237,.07);background:'+(bi%2===0?'#fdfdff':'#faf7ff')+';cursor:pointer;">';
         html+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;flex-wrap:wrap;margin-bottom:5px;">';
-        html+='<div><div style="font-size:9px;font-weight:900;color:#7c3aed;text-transform:uppercase;margin-bottom:1px;">UGL '+esc(b.uglId)+' — '+esc(b.uglDesc)+'</div>';
-        var bateNamesToShow=(b.bateNamesArr||[b.bate]).filter(function(n){return n&&n!==ent.nombre;});if(bateNamesToShow.length)html+='<div style="font-size:11px;font-weight:800;color:#334155;">'+bateNamesToShow.slice(0,3).map(esc).join('<span style="color:#94a3b8;margin:0 4px;font-weight:400;">·</span>')+(bateNamesToShow.length>3?'<span style="color:#94a3b8;font-size:10px;"> +'+(bateNamesToShow.length-3)+'</span>':'')+'</div>';
-        if(b.direccion||b.localidad)html+='<div style="font-size:10px;color:#64748b;">'+esc(b.direccion||'')+(b.localidad?' · '+esc(b.localidad):'')+'</div>';
+        /* La UGL ya está en la card del oferente: acá solo se repite si tiene bocas en más de una UGL */
+        var _multiUgl=(function(){var st={};ent.batesArr.forEach(function(x){st[String(x.uglId||'')]=1;});return Object.keys(st).length>1;})();
+        html+='<div style="min-width:0;">';
+        if(_multiUgl) html+='<div style="font-size:9px;font-weight:900;color:#7c3aed;text-transform:uppercase;margin-bottom:1px;">UGL '+esc(b.uglId)+' — '+esc(b.uglDesc)+'</div>';
+        /* Nombre de la BATE: se omiten las variantes que son el mismo nombre del oferente (con tolerancia a tipeos) */
+        var _nk=function(t){return String(t||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');};
+        var _entK=_nk(ent.nombre);
+        var bateNamesToShow=(b.bateNamesArr||[b.bate]).filter(function(n){if(!n)return false;var k=_nk(n);return k!==_entK&&k.indexOf(_entK)!==0&&_entK.indexOf(k)!==0;});
+        if(bateNamesToShow.length)html+='<div style="font-size:11.5px;font-weight:800;color:#1e293b;"><i class="fa-solid fa-house-medical" style="font-size:9px;color:#7c3aed;margin-right:5px;"></i>'+bateNamesToShow.slice(0,3).map(esc).join('<span style="color:#94a3b8;margin:0 4px;font-weight:400;">·</span>')+(bateNamesToShow.length>3?'<span style="color:#94a3b8;font-size:10px;"> +'+(bateNamesToShow.length-3)+'</span>':'')+'</div>';
+        if(b.direccion||b.localidad)html+='<div style="font-size:10.5px;color:#475569;"><i class="fa-solid fa-location-dot" style="font-size:8px;color:#94a3b8;margin-right:4px;"></i>'+esc(b.direccion||'')+(b.localidad?'<span style="color:#94a3b8;margin:0 4px;">·</span>'+esc(b.localidad):'')+'</div>';
         html+='</div>';
         var ultMovBoca=(function(){var best=null,bestTs=0;bocaMods.forEach(function(m){var ts=m.fechaEstadoTs||0;if(ts>bestTs){bestTs=ts;best=m.fechaEstado;}});return best;})();
         var ultMovBadge=ultMovBoca?'<span title="Último movimiento en esta boca: '+esc(ultMovBoca)+'" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:5px;padding:1px 6px;font-size:9px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;"><i class="fa-regular fa-clock" style="font-size:8px;margin-right:3px;opacity:.7;"></i>'+esc(window.__fechaOfrCorta?window.__fechaOfrCorta(ultMovBoca):ultMovBoca)+'</span>':'';
         html+='<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">'+ultMovBadge+padBadge+'</div>';
         html+='</div>';
-        html+='<div style="display:flex;flex-wrap:wrap;gap:3px;">';
-        b.mods.forEach(function(m){if(chipFilter&&!chipFilter.has(m.estado))return;var cls=ofrEstadoClase(m.estado);var lbl=ofrEstadoLabel(m.estado);var isVia=m._esViabilizador;html+='<span class="ofr-chip '+cls+'" title="'+esc(m.moduloId)+' – '+esc(m.modDesc)+' | '+esc(lbl)+((m.fechaInicio||m.fechaEstado)?' | Inicio: '+esc(m.fechaInicio||'—')+' · Últ. mov.: '+esc(m.fechaEstado||'—'):'')+'" style="font-size:10px;">'+(isVia?'<i class="fa-solid fa-bolt" style="font-size:8px;margin-right:2px;"></i>':'')+esc(m.moduloId)+'</span>';});
-        html+='</div></div>';
+        /* Módulos agrupados por CATEGORÍA (del nomenclador) para que se entienda sin saber el número */
+        var _grupos={}, _orden=[], _semCount={};
+        b.mods.forEach(function(m){
+          if(chipFilter&&!chipFilter.has(m.estado))return;
+          var mc=(window.MODS_BY_CODE||{})[parseInt(m.moduloId,10)];
+          var cat=(mc&&mc.cat)?String(mc.cat):'Otros';
+          if(!_grupos[cat]){_grupos[cat]=[];_orden.push(cat);}
+          _grupos[cat].push(m);
+          var sem=(window.__ofrSemaforo?window.__ofrSemaforo(m.estado):'gris'); _semCount[sem]=(_semCount[sem]||0)+1;
+        });
+        _orden.sort(function(a,b){ if(a==='Otros')return 1; if(b==='Otros')return -1; return _grupos[b].length-_grupos[a].length||a.localeCompare(b); });
+        html+='<div style="display:flex;flex-wrap:wrap;gap:6px 14px;align-items:flex-start;">';
+        _orden.forEach(function(cat){
+          html+='<div style="display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;">'
+              +'<span style="font-size:8.5px;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-right:2px;">'+esc(cat)+'</span>';
+          _grupos[cat].sort(function(x,y){return (parseInt(x.moduloId,10)||0)-(parseInt(y.moduloId,10)||0);}).forEach(function(m){
+            var cls=ofrEstadoClase(m.estado);var lbl=ofrEstadoLabel(m.estado);var isVia=m._esViabilizador;
+            html+='<span class="ofr-chip '+cls+'" title="'+esc(m.moduloId)+' – '+esc(m.modDesc)+' | '+esc(lbl)+((m.fechaInicio||m.fechaEstado)?' | Inicio: '+esc(m.fechaInicio||'—')+' · Últ. mov.: '+esc(m.fechaEstado||'—'):'')+'" style="font-size:10px;">'+(isVia?'<i class="fa-solid fa-bolt" style="font-size:8px;margin-right:2px;"></i>':'')+esc(m.moduloId)+'</span>';
+          });
+          html+='</div>';
+        });
+        html+='</div>';
+        /* Mini leyenda: solo los colores presentes en esta boca, con su conteo */
+        var _semTxt={azul:'en terreno',verde:'auditado / contratado',amarillo:'pend. documental',naranja:'falta cargar doc.',rojo:'cerrado negativo',gris:'sin clasificar'};
+        var _semCol={azul:'#1d4ed8',verde:'#0f766e',amarillo:'#ca8a04',naranja:'#ea580c',rojo:'#b91c1c',gris:'#94a3b8'};
+        var _semOrd=['verde','azul','amarillo','naranja','rojo','gris'].filter(function(k){return _semCount[k];});
+        if(_semOrd.length) html+='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:9px;color:#64748b;font-weight:700;">'
+          +_semOrd.map(function(k){return '<span><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+_semCol[k]+';margin-right:4px;vertical-align:middle;"></span>'+_semCount[k]+' '+_semTxt[k]+'</span>';}).join('')+'</div>';
+        html+='</div>';
       });
       html+='</div>';   /* cierre del contenedor colapsable */
       html+='</div>';
