@@ -5595,7 +5595,7 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
       new MutationObserver(sync).observe(document.body,{attributes:true,subtree:true,attributeFilter:['class','style']});
     });
   })();
-  window.__PADRON_BUILD = "2026-09-29.11 (visor: todos los chips filtran)";
+  window.__PADRON_BUILD = "2026-09-29.12 (visor: limpiar filtros)";
   try{ console.log("%c[padrón] build "+window.__PADRON_BUILD, "color:#7c3aed;font-weight:bold"); }catch(_){}
   window.__fechaOfrSplit = function(s){
     s = safeStr(s); if(!s) return null;
@@ -27862,7 +27862,8 @@ body.admin-system-mode #tab-panorama
       if(via375.length) partes.push('<button type="button" class="ovr-flag-chip" data-flag="via" onclick="window.__ovrToggleFlag(\'via\')" title="'+esc('Filtrar: solo los módulos que la RE 375/26 exige (viabilizadores). '+(window.__ovrViaTip||''))+'" style="border:1.5px solid #b45309;background:#fff;color:#b45309;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><i class="fa-solid fa-bolt" style="font-size:9px;"></i>'+via375.length+' viabilizador'+(via375.length!==1?'es':'')+' RE375</button>');
       if(hasPadronLoaded()) partes.push(_nHab?'<button type="button" class="ovr-flag-chip" data-flag="hab" onclick="window.__ovrToggleFlag(\'hab\')" title="Filtrar: solo los módulos que este prestador ya tiene habilitados en el padrón de esta UGL" style="border:1.5px solid #dc2626;background:#fff;color:#dc2626;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><i class="fa-solid fa-triangle-exclamation" style="font-size:9px;"></i>'+_nHab+' ya habilitado'+(_nHab!==1?'s':'')+' en padrón</button>':'<span style="color:#16a34a;font-weight:800;"><i class="fa-solid fa-circle-check" style="font-size:9px;"></i> ninguno habilitado aún</span>');
       if(b.direccion||b.localidad) partes.push('<span style="color:#64748b;"><i class="fa-solid fa-location-dot" style="font-size:9px;margin-right:3px;"></i>'+esc(b.direccion||'')+(b.localidad?' · '+esc(b.localidad):'')+'</span>');
-      _res.innerHTML=partes.join('<span style="color:#cbd5e1;">|</span>');
+      _res.innerHTML=partes.join('<span style="color:#cbd5e1;">|</span>')
+        +'<button type="button" id="ovrLimpiarFiltros" onclick="window.__ovrLimpiarFiltros()" title="Quitar todos los filtros y volver a ver todos los ofrecimientos" style="display:none;margin-left:auto;border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;align-items:center;gap:5px;"><i class="fa-solid fa-eraser" style="font-size:10px;"></i> Limpiar filtros</button>';
     }
     if(window.__ovrActualizarContador) window.__ovrActualizarContador();
 
@@ -28168,7 +28169,19 @@ body.admin-system-mode #tab-panorama
       if(vis) grpVis[tr.getAttribute('data-grp')]=1;
     });
     document.querySelectorAll('#ovrColOfr tr.ovr-grp-row').forEach(function(tr){ tr.style.display=grpVis[tr.getAttribute('data-grp')]?'':'none'; });
+    var hayFiltro=semActivo||via||hab;
+    var btnL=document.getElementById('ovrLimpiarFiltros'); if(btnL) btnL.style.display=hayFiltro?'inline-flex':'none';
+    var vacio=document.getElementById('ovrFilaVacia'); if(vacio) vacio.remove();
+    if(hayFiltro&&!Object.keys(grpVis).length&&tb){
+      var tvr=document.createElement('tr'); tvr.id='ovrFilaVacia';
+      tvr.innerHTML='<td colspan="6" style="padding:26px;text-align:center;color:#64748b;font-size:12px;">Ningún módulo cumple con la combinación de filtros. <a href="#" onclick="window.__ovrLimpiarFiltros();return false;" style="color:#7c3aed;font-weight:800;">Limpiar filtros</a></td>';
+      tb.appendChild(tvr);
+    }
     if(window.__ovrActualizarContador) window.__ovrActualizarContador();
+  };
+  window.__ovrLimpiarFiltros=function(){
+    window.__ovrSemFiltro=new Set(); window.__ovrViaFiltro=false; window.__ovrHabFiltro=false;
+    window.__ovrAplicarFiltros();
   };
   /* Chips del resumen como filtros: estado (combinables), viabilizadores RE375 y ya habilitados en padrón */
   window.__ovrToggleSem=function(k){
