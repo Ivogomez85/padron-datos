@@ -5595,7 +5595,7 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
       new MutationObserver(sync).observe(document.body,{attributes:true,subtree:true,attributeFilter:['class','style']});
     });
   })();
-  window.__PADRON_BUILD = "2026-09-29.10 (visor: alto fijo)";
+  window.__PADRON_BUILD = "2026-09-29.11 (visor: todos los chips filtran)";
   try{ console.log("%c[padrón] build "+window.__PADRON_BUILD, "color:#7c3aed;font-weight:bold"); }catch(_){}
   window.__fechaOfrSplit = function(s){
     s = safeStr(s); if(!s) return null;
@@ -27794,10 +27794,10 @@ body.admin-system-mode #tab-panorama
             +faltanExtra.map(function(f){return'<b>'+esc(f.mid)+'</b> '+esc(f.desc);}).join(', ')+'</div>';
         }
       });
-      rb.innerHTML=html; ra.style.display=''; ra.open=false;
-      var _rt=$e('ovrRE375Titulo'); if(_rt) _rt.textContent='Viabilizadores RE 375/26: '+via375.length+' módulo'+(via375.length!==1?'s':'')+' ofrecido'+(via375.length!==1?'s':'')+' que la norma exige';
+      rb.innerHTML=html; ra.style.display='none'; /* el detalle pasa al tooltip del chip de viabilizadores */
+      window.__ovrViaTip=(rb.textContent||'').replace(/\s+/g,' ').trim();
     } else {
-      ra.style.display='none';
+      ra.style.display='none'; window.__ovrViaTip='';
     }
 
     // Col ofrecidos
@@ -27831,7 +27831,7 @@ body.admin-system-mode #tab-panorama
         colOfr.appendChild(gtr);
       }
       var tr=document.createElement('tr');
-      tr.className='ovr-mod-row'; tr.setAttribute('data-sem',sem); tr.setAttribute('data-grp',grp);
+      tr.className='ovr-mod-row'; tr.setAttribute('data-sem',sem); tr.setAttribute('data-grp',grp); tr.setAttribute('data-via',isVia?'1':'0'); tr.setAttribute('data-hab',habEnUGL?'1':'0');
       tr.style.cssText='background:'+(isVia?'rgba(245,158,11,.06)':'transparent')+';';
       var nombre=(m.modDesc||(mc?mc.d:'')||'');
       /* Boca declarada en ESTE ofrecimiento vs. la boca de la card (pueden diferir si el unificador juntó variantes) */
@@ -27858,8 +27858,9 @@ body.admin-system-mode #tab-panorama
       var partes=['<b style="color:#1e293b;">'+b.mods.length+' módulo'+(b.mods.length!==1?'s':'')+' ofrecido'+(b.mods.length!==1?'s':'')+'</b>'];
       window.__ovrSemFiltro=new Set();
       ['verde','azul','amarillo','naranja','rojo','gris'].forEach(function(k){ if(_semCount[k]) partes.push('<button type="button" class="ovr-sem-chip" data-sem="'+k+'" onclick="window.__ovrToggleSem(\''+k+'\')" title="Filtrar: mostrar y seleccionar solo los módulos en este estado" style="border:1.5px solid '+_semCol[k]+';background:#fff;color:'+_semCol[k]+';border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+_semCol[k]+';"></span>'+_semCount[k]+' '+_semTxt[k]+'</button>'); });
-      if(via375.length) partes.push('<span style="color:#b45309;font-weight:800;"><i class="fa-solid fa-bolt" style="font-size:9px;"></i> '+via375.length+' viabilizador'+(via375.length!==1?'es':'')+' RE375</span>');
-      if(hasPadronLoaded()) partes.push(_nHab?'<span style="color:#dc2626;font-weight:800;"><i class="fa-solid fa-triangle-exclamation" style="font-size:9px;"></i> '+_nHab+' ya habilitado'+(_nHab!==1?'s':'')+' en padrón</span>':'<span style="color:#16a34a;font-weight:800;"><i class="fa-solid fa-circle-check" style="font-size:9px;"></i> ninguno habilitado aún</span>');
+      window.__ovrViaFiltro=false; window.__ovrHabFiltro=false;
+      if(via375.length) partes.push('<button type="button" class="ovr-flag-chip" data-flag="via" onclick="window.__ovrToggleFlag(\'via\')" title="'+esc('Filtrar: solo los módulos que la RE 375/26 exige (viabilizadores). '+(window.__ovrViaTip||''))+'" style="border:1.5px solid #b45309;background:#fff;color:#b45309;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><i class="fa-solid fa-bolt" style="font-size:9px;"></i>'+via375.length+' viabilizador'+(via375.length!==1?'es':'')+' RE375</button>');
+      if(hasPadronLoaded()) partes.push(_nHab?'<button type="button" class="ovr-flag-chip" data-flag="hab" onclick="window.__ovrToggleFlag(\'hab\')" title="Filtrar: solo los módulos que este prestador ya tiene habilitados en el padrón de esta UGL" style="border:1.5px solid #dc2626;background:#fff;color:#dc2626;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><i class="fa-solid fa-triangle-exclamation" style="font-size:9px;"></i>'+_nHab+' ya habilitado'+(_nHab!==1?'s':'')+' en padrón</button>':'<span style="color:#16a34a;font-weight:800;"><i class="fa-solid fa-circle-check" style="font-size:9px;"></i> ninguno habilitado aún</span>');
       if(b.direccion||b.localidad) partes.push('<span style="color:#64748b;"><i class="fa-solid fa-location-dot" style="font-size:9px;margin-right:3px;"></i>'+esc(b.direccion||'')+(b.localidad?' · '+esc(b.localidad):'')+'</span>');
       _res.innerHTML=partes.join('<span style="color:#cbd5e1;">|</span>');
     }
@@ -28142,27 +28143,42 @@ body.admin-system-mode #tab-panorama
     });
   }
   /* Filtro por estado desde los chips del resumen: muestra y selecciona solo esos módulos; sin filtro, todo visible y seleccionado */
-  window.__ovrToggleSem=function(k){
+  window.__ovrAplicarFiltros=function(){
     var f=window.__ovrSemFiltro||(window.__ovrSemFiltro=new Set());
-    if(f.has(k)) f.delete(k); else f.add(k);
-    var activo=f.size>0;
+    var semActivo=f.size>0, via=!!window.__ovrViaFiltro, hab=!!window.__ovrHabFiltro;
     document.querySelectorAll('#ovrResumen .ovr-sem-chip').forEach(function(ch){
       var on=f.has(ch.getAttribute('data-sem')); var col=ch.style.borderColor;
-      ch.style.background=on?col:'#fff'; ch.style.color=on?'#fff':col; ch.style.opacity=(activo&&!on)?'.45':'1';
+      ch.style.background=on?col:'#fff'; ch.style.color=on?'#fff':col; ch.style.opacity=(semActivo&&!on)?'.45':'1';
       var dot=ch.querySelector('span'); if(dot) dot.style.background=on?'#fff':col;
+    });
+    document.querySelectorAll('#ovrResumen .ovr-flag-chip').forEach(function(ch){
+      var on=ch.getAttribute('data-flag')==='via'?via:hab; var col=ch.style.borderColor;
+      ch.style.background=on?col:'#fff'; ch.style.color=on?'#fff':col;
     });
     var tb=document.getElementById('ovrColOfr'); if(tb){ tb.style.opacity='0'; }
     var scroller=tb&&tb.closest('div[style*="overflow-y"]'); if(scroller) scroller.scrollTop=0;
     setTimeout(function(){ if(tb) tb.style.opacity='1'; }, 60);
     var grpVis={};
     document.querySelectorAll('#ovrColOfr tr.ovr-mod-row').forEach(function(tr){
-      var vis=!activo||f.has(tr.getAttribute('data-sem'));
+      var vis=(!semActivo||f.has(tr.getAttribute('data-sem')))
+           && (!via||tr.getAttribute('data-via')==='1')
+           && (!hab||tr.getAttribute('data-hab')==='1');
       tr.style.display=vis?'':'none';
       var cb=tr.querySelector('.ovr-mod-cb'); if(cb) cb.checked=vis;
       if(vis) grpVis[tr.getAttribute('data-grp')]=1;
     });
     document.querySelectorAll('#ovrColOfr tr.ovr-grp-row').forEach(function(tr){ tr.style.display=grpVis[tr.getAttribute('data-grp')]?'':'none'; });
     if(window.__ovrActualizarContador) window.__ovrActualizarContador();
+  };
+  /* Chips del resumen como filtros: estado (combinables), viabilizadores RE375 y ya habilitados en padrón */
+  window.__ovrToggleSem=function(k){
+    var f=window.__ovrSemFiltro||(window.__ovrSemFiltro=new Set());
+    if(f.has(k)) f.delete(k); else f.add(k);
+    window.__ovrAplicarFiltros();
+  };
+  window.__ovrToggleFlag=function(which){
+    if(which==='via') window.__ovrViaFiltro=!window.__ovrViaFiltro; else window.__ovrHabFiltro=!window.__ovrHabFiltro;
+    window.__ovrAplicarFiltros();
   };
   /* Contador de seleccionados en la barra de acciones */
   window.__ovrActualizarContador=function(){
