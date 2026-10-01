@@ -5616,7 +5616,7 @@ PARTE 2/3 — HTML (Panorama reorganizado + resto de secciones + modales)
       new MutationObserver(sync).observe(document.body,{attributes:true,subtree:true,attributeFilter:['class','style']});
     });
   })();
-  window.__PADRON_BUILD = "2026-09-29.17 (animación de filas + habilitado por boca)";
+  window.__PADRON_BUILD = "2026-10-01.5 (ficha: una card por domicilio)";
   try{ console.log("%c[padrón] build "+window.__PADRON_BUILD, "color:#7c3aed;font-weight:bold"); }catch(_){}
   window.__fechaOfrSplit = function(s){
     s = safeStr(s); if(!s) return null;
@@ -27783,6 +27783,7 @@ body.admin-system-mode #tab-panorama
 
   // ══ VISOR MODAL
   var __visorBate=null,__visorPadData=null;
+  window.__ofrOpenVisor = function(b){ try{ openVisor(b); }catch(e){ console.error('[visor] no se pudo abrir', e); } };
   function openVisor(b){
     __visorBate=b;__visorPadData=null;
     var cn=(b.cuit||'').replace(/[^0-9]/g,'');
@@ -44649,6 +44650,95 @@ document.addEventListener('click',e=>{
     });
   }
 
+  /* ══ BUSCADOR INTELIGENTE: SII + POPP + ADENDAS ══
+     La ficha antes solo encontraba prestadores habilitados (store.prest). Un oferente puede
+     existir solo en POPP, y un prestador puede tener adenda en curso. Acá se consultan las
+     tres fuentes y se fusionan por CUIT → legajo → SAP → nombre normalizado. */
+  var __frNormTxt=function(t){ return String(t||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim(); };
+  var __frDig=function(t){ return String(t||'').replace(/\D/g,'').replace(/^0+/,''); };
+  var __frPoppSeq=0;
+  function requestSuggestPopp(q){
+    return new Promise(function(resolve){
+      if(typeof worker==='undefined' || !worker || String(q||'').trim().length<2){ resolve([]); return; }
+      window.__uglGlobalResolvers = window.__uglGlobalResolvers || new Map();
+      var reqId='frp_'+(++__frPoppSeq)+'_'+Date.now();
+      window.__uglGlobalResolvers.set(reqId, function(items){ resolve(items||[]); });
+      try{ worker.postMessage({ type:'suggestPoppIntegral', q:q, reqId:reqId }); }
+      catch(e){ window.__uglGlobalResolvers.delete(reqId); resolve([]); }
+      setTimeout(function(){ if(window.__uglGlobalResolvers.has(reqId)){ window.__uglGlobalResolvers.delete(reqId); resolve([]); } }, 6000);
+    });
+  }
+  /* CUIT de un caso del circuito: no está en el caso, solo en sus filas crudas */
+  function frAdeCuit(c){
+    try{ var A=window.__ADE; var raws=(c&&c._raws)||[]; for(var i=0;i<raws.length;i++){ var v=A.col(raws[i],'CUIT')||A.col(raws[i],'N_CUIT_CUIL')||A.col(raws[i],'CUIT/CUIL'); if(v) return String(v); } }catch(e){}
+    return '';
+  }
+  function frAdeRaw(c,name){ try{ var A=window.__ADE; var raws=(c&&c._raws)||[]; for(var i=0;i<raws.length;i++){ var v=A.col(raws[i],name); if(v) return String(v); } }catch(e){} return ''; }
+  function frBuscarAdendas(q){
+    var A=window.__ADE, out=[]; if(!A||!A.idx||typeof A.idx.forEach!=='function') return out;
+    var nq=__frNormTxt(q), tokens=nq.split(' ').filter(Boolean), qd=__frDig(q);
+    A.idx.forEach(function(c,key){
+      var cuit=frAdeCuit(c), name=String(c&&c.prestador||''), sap=String(c&&c.sap||''), leg=String(c&&c.legajo||'');
+      var hay=__frNormTxt([name,sap,cuit,leg].join(' '));
+      var ok=tokens.length?tokens.every(function(t){ return hay.indexOf(t)>=0; }):false;
+      if(!ok&&qd.length>=3){ ok=__frDig([sap,cuit,leg].join(' ')).indexOf(qd)>=0; }
+      if(ok) out.push({ key:String(key||''), name:name, sap:sap, cuit:cuit, legajo:leg, caso:c });
+    });
+    return out.slice(0,60);
+  }
+  var __frAdeCargando=false;
+  function frAsegurarAdendas(cb){
+    var A=window.__ADE; if(!A||typeof A.estado!=='function') return;
+    var st=A.estado(); if(st&&st.cargado) return;
+    if(__frAdeCargando||!A.cargar) return;
+    __frAdeCargando=true;
+    A.cargar(true).then(function(){ __frAdeCargando=false; if(cb) cb(); }).catch(function(){ __frAdeCargando=false; });
+  }
+  function frFusionar(hab, popp, ad){
+    var entries=[];
+    function find(o){
+      var c=__frDig(o.cuit), l=String(o.legajo||'').trim(), sp=__frDig(o.sap), nn=__frNormTxt(o.name);
+      for(var i=0;i<entries.length;i++){ var x=entries[i];
+        if(c&&x._c===c) return x;
+        if(l&&x._l===l) return x;
+        if(sp&&x._s===sp) return x;
+        if(nn&&x._n===nn) return x;
+      }
+      return null;
+    }
+    function create(o){
+      var e={ name:o.name||'', sap:o.sap||'', cuit:o.cuit||'', legajo:o.legajo||'', prestId:'', prestIds:[], ugls:[], uglCount:0, openKeyAll:'', openKeysAll:[],
+              fuentes:{hab:false, popp:null, adendas:[]} };
+      e._c=__frDig(o.cuit); e._l=String(o.legajo||'').trim(); e._s=__frDig(o.sap); e._n=__frNormTxt(o.name);
+      entries.push(e); return e;
+    }
+    function fill(e,o){ if(!e.cuit&&o.cuit) { e.cuit=o.cuit; e._c=__frDig(o.cuit); } if(!e.legajo&&o.legajo){ e.legajo=o.legajo; e._l=String(o.legajo).trim(); } if(!e.sap&&o.sap){ e.sap=o.sap; e._s=__frDig(o.sap); } if(!e.name&&o.name){ e.name=o.name; e._n=__frNormTxt(o.name); } }
+    (hab||[]).forEach(function(h){
+      var e=find(h)||create(h); fill(e,h);
+      e.fuentes.hab=true; e.prestId=h.prestId||e.prestId; e.prestIds=h.prestIds||e.prestIds; e.ugls=h.ugls||e.ugls; e.uglCount=h.uglCount||e.uglCount; e.openKeyAll=h.openKeyAll||''; e.openKeysAll=h.openKeysAll||[];
+      if(h.name) { e.name=h.name; e._n=__frNormTxt(h.name); }
+    });
+    (popp||[]).forEach(function(pp){ var e=find(pp)||create(pp); fill(e,pp); e.fuentes.popp={ activos:pp.activos||0, finalizados:pp.finalizados||0, total:pp.ofrecimientos||((pp.activos||0)+(pp.finalizados||0)), ugls:pp.ugls||[], states:pp.states||[] }; });
+    (ad||[]).forEach(function(a){ var e=find(a)||create(a); fill(e,a); e.fuentes.adendas.push(a.caso); });
+    entries.forEach(function(e){ e.nFuentes=(e.fuentes.hab?1:0)+(e.fuentes.popp?1:0)+(e.fuentes.adendas.length?1:0); });
+    entries.sort(function(a,b){ return (b.fuentes.hab?1:0)-(a.fuentes.hab?1:0) || b.nFuentes-a.nFuentes || a.name.localeCompare(b.name,'es'); });
+    return entries.slice(0,30);
+  }
+  function requestSuggestTodo(q){
+    frAsegurarAdendas(function(){ /* cuando llega el circuito, refrescar sugerencias si siguen abiertas */ var box=$('frSuggest'); if(box&&box.style.display!=='none'&&($('frInput').value||'').trim()===q) frOnInput(); });
+    return Promise.all([ requestSuggestFicha(q), requestSuggestPopp(q), Promise.resolve(frBuscarAdendas(q)) ])
+      .then(function(r){ return frFusionar(r[0],r[1],r[2]); });
+  }
+  function frFuenteBadges(it, dark){
+    var f=it.fuentes||{hab:true,popp:null,adendas:[]}; var out='';
+    var st=function(bg,col){ return 'display:inline-flex;align-items:center;gap:3px;border-radius:5px;padding:1px 6px;font-size:9.5px;font-weight:800;white-space:nowrap;background:'+bg+';color:'+col+';'; };
+    out+= f.hab ? '<span title="Habilitado en el padrón (SII)" style="'+st(dark?'rgba(255,255,255,.18)':'#dbeafe', dark?'#fff':'#1e40af')+'"><i class="fa-solid fa-circle-check" style="font-size:8px;"></i> SII</span>'
+                : '<span title="No figura habilitado en el padrón (SII)" style="'+st(dark?'rgba(255,255,255,.08)':'#f1f5f9', dark?'rgba(255,255,255,.6)':'#94a3b8')+'">sin SII</span>';
+    if(f.popp) out+='<span title="'+escH(f.popp.activos+' ofrecimiento(s) activo(s) · '+f.popp.finalizados+' finalizado(s)')+'" style="'+st(dark?'rgba(255,255,255,.18)':'#ede9fe', dark?'#fff':'#6d28d9')+'"><i class="fa-solid fa-file-circle-plus" style="font-size:8px;"></i> POPP '+(f.popp.activos||0)+'</span>';
+    if(f.adendas&&f.adendas.length) out+='<span title="'+escH(f.adendas.length+' adenda(s) RE 375/26 en el circuito')+'" style="'+st(dark?'rgba(255,255,255,.18)':'#fef3c7', dark?'#fff':'#92400e')+'"><i class="fa-solid fa-file-signature" style="font-size:8px;"></i> Adenda '+f.adendas.length+'</span>';
+    return out;
+  }
+
   // Records de ofrecimientos por cuit/legajo (activos + finalizados)
   // Usa el MISMO mecanismo que la tarjeta de prestador (window.__ofrResolvers),
   // que es el que el main resuelve al recibir type:"ofrecimientos".
@@ -44713,6 +44803,8 @@ document.addEventListener('click',e=>{
       var uglBadge = it.uglCount>1
         ? '<span style="background:#ede9fe;color:#6d28d9;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;white-space:nowrap;">'+it.uglCount+' UGLs</span>'
         : (it.uglCount===1 ? '<span style="background:#dbeafe;color:#1e40af;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;white-space:nowrap;">1 UGL</span>' : '');
+      uglBadge='<span style="display:inline-flex;gap:4px;align-items:center;">'+frFuenteBadges(it,false)+uglBadge+'</span>';
+      if(it.fuentes&&it.fuentes.popp&&!it.fuentes.hab){ var pu=(it.fuentes.popp.ugls||[]).map(function(u){return 'UGL '+u.uglId;}).slice(0,3).join(', '); if(pu) sub.push('Ofrece en '+pu); }
       html+='<div class="fr-sg-item" data-i="'+i+'" style="padding:11px 16px;cursor:pointer;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:10px;">'
           + '<div style="min-width:0;flex:1;"><div style="font-weight:700;font-size:13px;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escH(it.name||'(sin nombre)')+'</div>'
           + (sub.length?'<div style="font-size:11px;color:#64748b;">'+sub.join(' · ')+'</div>':'')+'</div>'
@@ -44766,7 +44858,9 @@ document.addEventListener('click',e=>{
     html+='</div>';
     // Fila 2: chips de UGL (envuelven a más filas si son muchas)
     if(!ugls.length){
-      html+='<div style="color:#94a3b8;font-size:11px;">Sin UGLs · se generará con ofrecimientos</div>';
+      var _pp=item.fuentes&&item.fuentes.popp, _ad=item.fuentes&&item.fuentes.adendas||[];
+      html+='<div style="color:#64748b;font-size:11px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'+frFuenteBadges(item,false)
+          +'<span>No figura habilitado en SII'+(_pp?' · ofrece en '+(_pp.ugls||[]).map(function(u){return 'UGL '+u.uglId+(u.uglDesc?' '+u.uglDesc:'');}).join(', '):'')+(_ad.length?' · '+_ad.length+' adenda(s) en circuito':'')+'. La ficha se arma con lo que haya en POPP y adendas.</span></div>';
     } else {
       html+='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
       ugls.forEach(function(u){
@@ -44804,7 +44898,8 @@ document.addEventListener('click',e=>{
     if(frT) clearTimeout(frT);
     if(q.length<2){ frClearSuggest(); return; }
     frT=setTimeout(function(){
-      requestSuggestFicha(q).then(function(items){
+      requestSuggestTodo(q).then(function(items){
+        if(($('frInput').value||'').trim()!==q) return;
         frRenderSuggest(items||[]);
       });
     }, 220);
@@ -44970,10 +45065,12 @@ document.addEventListener('click',e=>{
     var res=$('frResult');
     if(res) res.innerHTML='<div style="text-align:center;padding:24px;color:#94a3b8;font-size:12.5px;"><i class="fa-solid fa-ban" style="margin-right:6px;"></i>Generación cancelada.</div>';
   }
-  function frGenerar(item, scopes, uglLabel){
+  function frGenerar(item, scopes, uglLabel, uglSolo){
     var res=$('frResult');
     if(!res) return;
     if(!Array.isArray(scopes)) scopes=[scopes];
+    window.__frUltimo={ item:item, scopes:scopes.slice(), uglLabel:uglLabel||'', uglSolo:uglSolo||'' };
+    window.__frUglSolo = uglSolo||'';
     var myToken=++__frRunToken;
     frSetRunning(true);
     res.innerHTML='<div style="text-align:center;padding:40px;color:#64748b;font-size:13px;"><i class="fa-solid fa-spinner fa-spin"></i> Armando ficha resumen…</div>';
@@ -44995,8 +45092,8 @@ document.addEventListener('click',e=>{
       return { code:'', desc:'', label:'' };
     }
 
-    var detailPromises = scopes.map(function(sk){
-      return (window.requestPrestDetail ? window.requestPrestDetail(sk).then(function(d){ return {d:d, ugl:uglFromScope(sk)}; }) : Promise.resolve({d:null, ugl:uglFromScope(sk)}));
+    var detailPromises = scopes.filter(function(sk){ return !!sk; }).map(function(sk){
+      return (window.requestPrestDetail ? window.requestPrestDetail(sk).then(function(d){ return {d:d, ugl:uglFromScope(sk)}; }).catch(function(){ return {d:null, ugl:uglFromScope(sk)}; }) : Promise.resolve({d:null, ugl:uglFromScope(sk)}));
     });
 
     // Códigos de UGL seleccionados (para filtrar ofrecimientos por órbita elegida)
@@ -45007,7 +45104,7 @@ document.addEventListener('click',e=>{
 
     Promise.all([
       Promise.all(detailPromises),
-      requestOfrecimientos(cuit, legajo)
+      (cuit||legajo) ? requestOfrecimientos(cuit, legajo) : Promise.resolve({records:[]})   /* sin CUIT ni legajo el worker devolvería TODO */
     ]).then(function(arr){
       if(myToken!==__frRunToken) return;
       var detailsWithUgl = arr[0]||[];
@@ -45017,12 +45114,14 @@ document.addEventListener('click',e=>{
       if(cuit){
         ofrRecords = ofrRecords.filter(function(r){ return (String(r.cuit||'').replace(/[^0-9]/g,'')) === cuit; });
       }
+      // Filtro por UGL única elegida desde los chips de la ficha (vale aunque esa UGL no tenga habilitación SII)
+      if(uglSolo){ var _us=String(parseInt(uglSolo,10)||uglSolo); ofrRecords = ofrRecords.filter(function(r){ return String(parseInt(r.uglId,10)||r.uglId)===_us; }); }
       // Filtro por UGLs ELEGIDAS: si el usuario excluyó alguna UGL, sus ofrecimientos NO deben aparecer.
       if(!esTodas && uglCodesSel.length){
         var selSet={}; uglCodesSel.forEach(function(c){ selSet[String(parseInt(c,10)||c)]=1; });
         ofrRecords = ofrRecords.filter(function(r){ return selSet[String(parseInt(r.uglId,10)||r.uglId)]; });
       }
-      var detail = frMergeDetails(detailsWithUgl);
+      var detail = detailsWithUgl.length ? frMergeDetails(detailsWithUgl) : null;
       frSetRunning(false);
       renderFicha(item, detail, ofrRecords, uglLabel||'');
     }).catch(function(e){
@@ -45081,7 +45180,7 @@ document.addEventListener('click',e=>{
   var __frOfrFiltro = 'todos'; // 'todos' | 'activos' | 'finalizados'
   /* Filtros nuevos de la zona de ofrecimientos: año, categoría de módulo, bate y
      si las cards arrancan colapsadas. Se guardan en window para sobrevivir al repintado. */
-  var __frOfrAnio = 'todos', __frOfrCat = 'todos', __frOfrBate = 'todas';
+  var __frOfrAnio = 'todos', __frOfrCat = 'todos', __frOfrBate = 'todas', __frOfrEstado = 'todos', __frOfrUgl = 'todas';
   /* Bloque "Módulos dados de alta": colapsado por defecto y filtrable por categoría.
      El listado suele tener 80+ filas y empujaba todo lo demás fuera de pantalla. */
   var __frModAbierto = false, __frModCat = 'todas';
@@ -45109,6 +45208,8 @@ document.addEventListener('click',e=>{
   window.__frSetOfrAnio = function(v){ __frOfrAnio=v; __frRepintar(); };
   window.__frSetOfrCat  = function(v){ __frOfrCat=v;  __frRepintar(); };
   window.__frSetOfrBate = function(v){ __frOfrBate=v; __frRepintar(); };
+  window.__frSetOfrEstado = function(v){ __frOfrEstado=v; __frRepintar(); };
+  window.__frSetOfrUgl = function(v){ __frOfrUgl=v; __frOfrBate='todas'; __frRepintar(); };
   window.__frToggleColapso = function(){
     __frOfrColapsar = !__frOfrColapsar; __frBatesAbiertas = {}; __frRepintar();
   };
@@ -45118,8 +45219,26 @@ document.addEventListener('click',e=>{
     if(body){ body.style.display = __frBatesAbiertas[id] ? '' : 'none'; }
     if(ico){ ico.style.transform = __frBatesAbiertas[id] ? 'rotate(90deg)' : 'rotate(0deg)'; }
   };
+  window.__frFiltrarUgl = function(code){
+    var u=window.__frUltimo; if(!u||!u.item) return;
+    var item=u.item; code=String(code||'');
+    if(!code){
+      var all=(item.ugls||[]).map(function(x){return x.openKey;}).filter(Boolean);
+      frGenerar(item, all.length?all:[item.prestId||''], '', '');
+      return;
+    }
+    var keys=(item.ugls||[]).filter(function(x){ return String(parseInt(x.uglCode,10)||x.uglCode)===String(parseInt(code,10)||code); }).map(function(x){return x.openKey;}).filter(Boolean);
+    var desc=''; (item.ugls||[]).forEach(function(x){ if(String(parseInt(x.uglCode,10)||x.uglCode)===String(parseInt(code,10)||code)) desc=x.uglDesc||x.uglKey||''; });
+    if(!desc){ try{ (item.fuentes.popp.ugls||[]).forEach(function(x){ if(String(parseInt(x.uglId,10))===String(parseInt(code,10))) desc=x.uglDesc||''; }); }catch(e){} }
+    frGenerar(item, keys.length?keys:[''], code+(desc?' — '+desc:''), code);
+  };
+  window.__frAbrirVisorBate = function(bid){
+    var b=window.__frBatesParaVisor&&window.__frBatesParaVisor[bid]; if(!b) return;
+    if(typeof window.__ofrOpenVisor!=='function'){ frToast('El visor de ofrecimientos no está disponible'); return; }
+    window.__ofrOpenVisor(b);
+  };
   window.__frLimpiarOfr = function(){
-    __frOfrFiltro='todos'; __frOfrAnio='todos'; __frOfrCat='todos'; __frOfrBate='todas'; __frRepintar();
+    __frOfrFiltro='todos'; __frOfrAnio='todos'; __frOfrCat='todos'; __frOfrBate='todas'; __frOfrEstado='todos'; __frOfrUgl='todas'; __frRepintar();
   };
   function __frRepintar(){
     if(!__frRenderCtx) return;
@@ -45197,6 +45316,12 @@ document.addEventListener('click',e=>{
       if(__frOfrFiltro==='finalizados' && !r.esFinal) return false;
       if(__frOfrAnio!=='todos' && __frAnioDe(r)!==__frOfrAnio) return false;
       if(__frOfrCat!=='todos' && __frCatDe(r.moduloId)!==__frOfrCat) return false;
+      if(__frOfrUgl!=='todas' && String(parseInt(r.uglId,10)||r.uglId)!==__frOfrUgl) return false;
+      if(__frOfrEstado!=='todos'){
+        /* "sem:<color>" filtra por etapa del semáforo; cualquier otro valor es el estado literal del POPP */
+        if(__frOfrEstado.indexOf('sem:')===0){ if((window.__ofrSemaforo?window.__ofrSemaforo(r.estado):'gris')!==__frOfrEstado.slice(4)) return false; }
+        else if(String(r.estado||'').toUpperCase().trim()!==__frOfrEstado) return false;
+      }
       return true;
     });
     var prest = (detail && detail.ok && detail.prest) ? detail.prest : null;
@@ -45234,7 +45359,11 @@ document.addEventListener('click',e=>{
         _diagOfr.push({ UGL:r.uglId||'', direccion:r.direccion||'', bate:r.bate||'',
                         nucleo:p.nucleo||'', altura:p.altura||'', clave:key });
       } else {
-        key = (r.uglId||'')+'|'+(r.bate||r.direccion||'—');
+        /* Sin unificar: una card por escritura de bate + domicilio (igual que la solapa Ofrecimientos).
+           Antes la clave era solo el nombre de bate y dos domicilios distintos con el mismo nombre
+           ("F.EPI" en Garcia Silva 750 y en Belgrano 590) caían en una sola card. */
+        var _nd=function(t){ return String(t||'').toUpperCase().replace(/[.,#]/g,'').replace(/\s+/g,' ').trim(); };
+        key = (r.uglId||'')+'|'+_nd(r.bate)+'|'+_nd(r.direccion);
         _diagOfr.push({ UGL:r.uglId||'', direccion:r.direccion||'', bate:r.bate||'', clave:key });
       }
       if(!ofrByBate[key]) ofrByBate[key] = { bate:r.bate||'', direccion:r.direccion||'', localidad:r.localidad||'', uglId:r.uglId||'', uglDesc:r.uglDesc||'', mods:[], _vars:[], _nombres:[] };
@@ -45307,6 +45436,40 @@ document.addEventListener('click',e=>{
     html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">';
     function idChip(lbl,val){ return val ? '<span style="background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:5px 12px;font-size:12px;font-weight:700;"><span style="opacity:.7;font-weight:600;">'+lbl+':</span> '+escH(val)+'</span>' : ''; }
     html+=idChip('Legajo',legajo)+idChip('SAP',sap)+idChip('CUIT',cuit);
+    /* Adendas RE 375/26 del prestador: por SAP (índice del circuito) + las que trajo la búsqueda */
+    var __adeCasos=(function(){
+      var out=[], seen={}; var A=window.__ADE;
+      var add=function(c){ if(!c) return; var k=(c.sap||'')+'|'+(c.uglNum||c.ugl||''); if(seen[k]) return; seen[k]=1; out.push(c); };
+      try{ if(A&&A.bySap&&sap){ var sN=String(sap).replace(/\D/g,'').replace(/^0+/,''); (A.bySap.get(sN)||[]).forEach(add); } }catch(e){}
+      try{ ((item&&item.fuentes&&item.fuentes.adendas)||[]).forEach(add); }catch(e){}
+      try{ if(A&&A.idx&&!out.length&&(cuit||legajo)){ var cd=String(cuit||'').replace(/\D/g,''); A.idx.forEach(function(c){ if((legajo&&String(c.legajo||'').trim()===legajo)||(cd&&frAdeCuit(c).replace(/\D/g,'')===cd)) add(c); }); } }catch(e){}
+      out.sort(function(a,b){ return (b.rank||0)-(a.rank||0); });
+      var _solo=String(window.__frUglSolo||''); if(_solo) out=out.filter(function(c){ return String(c.uglNum||'')===String(parseInt(_solo,10)||_solo); });
+      return out;
+    })();
+    var __itemF={ fuentes:{ hab:!!prest, popp:(ofrRecords&&ofrRecords.length)?{activos:ofrTotActivos,finalizados:ofrTotFinales,total:ofrTotal}:null, adendas:__adeCasos } };
+    html+='<span style="display:inline-flex;gap:5px;align-items:center;margin-left:4px;">'+frFuenteBadges(__itemF,true)+'</span>';
+    html+='</div>';
+    /* ── Órbita: chips de UGL que recortan TODA la ficha (SII, adendas y POPP). "Todas" vuelve al informe completo. ── */
+    var __uglSet={};
+    (item&&item.ugls||[]).forEach(function(u){ var c=String(parseInt(u.uglCode,10)||u.uglCode||''); if(c) __uglSet[c]={code:c, desc:u.uglDesc||u.uglKey||'', sii:true}; });
+    try{ ((item&&item.fuentes&&item.fuentes.popp&&item.fuentes.popp.ugls)||[]).forEach(function(u){ var c=String(parseInt(u.uglId,10)||u.uglId||''); if(!c) return; if(!__uglSet[c]) __uglSet[c]={code:c, desc:u.uglDesc||'', sii:false}; __uglSet[c].popp=true; }); }catch(e){}
+    try{ (__frRenderCtx&&__frRenderCtx.ofrRecords||[]).forEach(function(r){ var c=String(parseInt(r.uglId,10)||r.uglId||''); if(!c) return; if(!__uglSet[c]) __uglSet[c]={code:c, desc:r.uglDesc||'', sii:false}; __uglSet[c].popp=true; }); }catch(e){}
+    try{ __adeCasos.forEach(function(c){ var k=String(c.uglNum||''); if(!k) return; if(!__uglSet[k]) __uglSet[k]={code:k, desc:c.uglNombre||'', sii:false}; __uglSet[k].ade=true; }); }catch(e){}
+    var __uglArr=Object.keys(__uglSet).map(function(k){return __uglSet[k];}).sort(function(a,b){ return (parseInt(a.code,10)||0)-(parseInt(b.code,10)||0); });
+    var __uglSolo=String(window.__frUglSolo||'');
+    if(__uglArr.length){
+      var _chipU=function(on, txt, title, fn){ return '<button onclick="'+fn+'" title="'+escH(title)+'" style="cursor:pointer;border-radius:999px;padding:4px 11px;font-size:11px;font-weight:800;border:1.5px solid rgba(255,255,255,.55);background:'+(on?'#fff':'rgba(255,255,255,.12)')+';color:'+(on?'#0b2e5f':'#fff')+';display:inline-flex;align-items:center;gap:5px;white-space:nowrap;transition:background .15s,color .15s;">'+txt+'</button>'; };
+      html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:12px;">';
+      html+='<span style="font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;opacity:.75;margin-right:2px;"><i class="fa-solid fa-location-dot" style="margin-right:4px;"></i>Órbita</span>';
+      html+=_chipU(!__uglSolo, 'Todas las UGLs', 'Informe completo', 'window.__frFiltrarUgl(\'\')');
+      __uglArr.forEach(function(u){
+        var marcas=(u.sii?'SII':'')+(u.popp?(u.sii?' · ':'')+'POPP':'')+(u.ade?((u.sii||u.popp)?' · ':'')+'Adenda':'');
+        html+=_chipU(__uglSolo===u.code, 'UGL '+escH(u.code)+' <span style="font-weight:600;opacity:.85;">'+escH(u.desc)+'</span>'+(marcas?' <span style="font-size:9px;opacity:.7;">('+marcas+')</span>':''), 'Ver solo UGL '+u.code+' — '+u.desc, 'window.__frFiltrarUgl(\''+escH(u.code)+'\')');
+      });
+      html+='</div>';
+    }
+    html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">';   /* cápitas (chips de cabecera) */
     var __capQ={sap:sap,legajo:legajo,cp:(item&&item.prestId&&/^CP:/.test(String(item.prestId)))?String(item.prestId).slice(3):null,ugls:(item&&item.ugls||[]).map(function(u){return u.uglCode||u.uglKey||u;})};
     try{ if(window.__CAP) html+=window.__CAP.chipHTML(__capQ,{header:true}); }catch(e){}
     html+='</div></div>';
@@ -45322,7 +45485,7 @@ document.addEventListener('click',e=>{
     html+='<div style="font-size:15px;font-weight:900;color:#0b2e5f;">Habilitado <span style="font-size:10px;font-weight:600;opacity:.6;">(SII)</span></div></div>';
 
     if(!prest){
-      html+='<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Sin datos de habilitación cargados para este prestador.</div>';
+      html+='<div style="display:flex;align-items:center;gap:8px;color:#64748b;font-size:13px;padding:8px 0;"><span style="display:inline-flex;align-items:center;gap:5px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:6px;padding:2px 9px;font-size:11px;font-weight:800;"><i class="fa-solid fa-circle-minus" style="font-size:9px;"></i> No habilitado</span> Este CUIT / legajo no figura con módulos habilitados en el padrón SII'+(ofrTotal?'; hoy es <b>oferente</b> en el circuito POPP':'')+'.</div>';
     } else {
       // Bocas — dirección + UGL, claras
       var _hdrBocas = '';   /* se arma después de unificar, para que el número no mienta */
@@ -45467,6 +45630,39 @@ document.addEventListener('click',e=>{
     }
     html+='</div>';
 
+    // ═══ BLOQUE 1b: ADENDAS RE 375/26 (circuito en vivo) ═══
+    html+='<div style="margin-bottom:26px;">';
+    html+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #fde68a;">';
+    html+='<span style="width:28px;height:28px;background:linear-gradient(135deg,#b45309,#f59e0b);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;"><i class="fa-solid fa-file-signature"></i></span>';
+    html+='<div style="font-size:15px;font-weight:900;color:#92400e;">Adendas RE 375/26 <span style="font-size:10px;font-weight:600;opacity:.6;">(circuito)</span></div>';
+    html+='<span style="margin-left:auto;font-size:11px;color:#94a3b8;">'+(__adeCasos.length?__adeCasos.length+' expediente'+(__adeCasos.length!==1?'s':''):'')+'</span></div>';
+    if(!__adeCasos.length){
+      var _adeSt=(window.__ADE&&window.__ADE.estado)?window.__ADE.estado():null;
+      html+='<div style="color:#94a3b8;font-size:12px;padding:6px 0;">'+((_adeSt&&_adeSt.cargado)?'Sin adendas RE 375/26 registradas para este prestador en el circuito.':'El circuito de adendas todavía no cargó (o no está disponible). Reintentá en unos segundos.')+'</div>';
+    } else {
+      html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:10px;">';
+      __adeCasos.forEach(function(c){
+        var chip=''; try{ chip=window.__ADE.chipHTML(c); }catch(e){}
+        var ingreso=frAdeRaw(c,'FECHA INGRESO')||frAdeRaw(c,'INGRESO');
+        var modsTxt=frAdeRaw(c,'MODULOS HABILITADOS EN SII')||frAdeRaw(c,'Detalle RE 375/26');
+        var falt=frAdeRaw(c,'Módulos faltantes s/nota')||frAdeRaw(c,'Modulos faltantes s/nota');
+        html+='<div style="border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:10px;padding:10px 12px;background:#fffbeb;">';
+        html+='<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap;"><div style="font-size:12px;font-weight:900;color:#78350f;"><i class="fa-solid fa-location-dot" style="font-size:9px;margin-right:4px;"></i>UGL '+escH(c.uglNum||c.ugl||'')+(c.uglNombre?' — '+escH(c.uglNombre):'')+'</div>'+chip+'</div>';
+        html+='<div style="font-size:11px;color:#92400e;margin-top:6px;line-height:1.5;">'
+            +(c.estado?'<div><b>Último estado:</b> '+escH(c.estado)+'</div>':'')
+            +(c.expediente?'<div><b>Expediente:</b> '+escH(c.expediente)+'</div>':'')
+            +(ingreso?'<div><b>Ingreso:</b> '+escH(ingreso)+'</div>':'')
+            +(c.grupo?'<div><b>Grupo nota:</b> '+escH(c.grupo)+'</div>':'')
+            +(c.inleg?'<div><b>INLEG adenda:</b> '+escH(c.inleg)+'</div>':'')
+            +(modsTxt?'<div><b>Módulos habilitados (según circuito):</b> '+escH(modsTxt)+'</div>':'')
+            +(falt?'<div><b>Faltantes s/nota:</b> '+escH(falt)+'</div>':'')
+            +(c.gestiones>1?'<div style="color:#b45309;">'+c.gestiones+' expedientes en esta UGL</div>':'')
+            +'</div></div>';
+      });
+      html+='</div>';
+    }
+    html+='</div>';
+
     // ═══ BLOQUE 2: OFRECIMIENTOS (POPP) ═══
     html+='<div style="margin-bottom:26px;">';
     html+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #ede9fe;flex-wrap:wrap;justify-content:space-between;">';
@@ -45519,17 +45715,29 @@ document.addEventListener('click',e=>{
         Object.keys(_cats).sort().map(function(c){ return {v:c,l:c+' ('+_cats[c]+')'}; }));
       var optBates=[{v:'todas',l:'Todas las bates'}].concat(
         (window.__frBatesOpts||[]).map(function(b){ return {v:b.k,l:b.l}; }));
+      /* Estados presentes en TODOS los records del prestador: primero por etapa (semáforo), después literal */
+      var _estN={}, _semN={};
+      (ofrRecords||[]).forEach(function(r){ var e=String(r.estado||'').toUpperCase().trim(); if(e) _estN[e]=(_estN[e]||0)+1; var k=(window.__ofrSemaforo?window.__ofrSemaforo(r.estado):'gris'); _semN[k]=(_semN[k]||0)+1; });
+      var _semLbl={naranja:'Falta cargar doc.',amarillo:'Etapa documental',azul:'Auditoría en terreno',verde:'Contratado / avanzado',rojo:'Cerrado negativo',gris:'Sin clasificar'};
+      var _uglN={}, _uglD={};
+      (ofrRecords||[]).forEach(function(r){ var c=String(parseInt(r.uglId,10)||r.uglId||''); if(!c) return; _uglN[c]=(_uglN[c]||0)+1; if(!_uglD[c]) _uglD[c]=r.uglDesc||''; });
+      var optUgls=[{v:'todas',l:'Todas las UGLs'}].concat(Object.keys(_uglN).sort(function(a,b){return (parseInt(a,10)||0)-(parseInt(b,10)||0);}).map(function(c){ return {v:c, l:'UGL '+c+(_uglD[c]?' — '+_uglD[c]:'')+' ('+_uglN[c]+')'}; }));
+      var optEstados=[{v:'todos',l:'Todos los estados'}]
+        .concat(['naranja','amarillo','azul','verde','rojo','gris'].filter(function(k){return _semN[k];}).map(function(k){ return {v:'sem:'+k, l:'● '+_semLbl[k]+' ('+_semN[k]+')'}; }))
+        .concat(Object.keys(_estN).sort().map(function(e){ return {v:e, l:'   '+((window.ofrEstadoLabel&&window.ofrEstadoLabel(e))||e)+' ('+_estN[e]+')'}; }));
 
       html+='<div onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;'
           +'background:#faf7ff;border:1px solid rgba(124,58,237,.14);border-radius:10px;padding:9px 13px;">'
+        + (optUgls.length>2 ? _sel('ugl', __frOfrUgl, optUgls, 'window.__frSetOfrUgl', 'UGL') : '')
         + _sel('anio', __frOfrAnio, optAnios, 'window.__frSetOfrAnio', 'Año')
         + _sel('cat',  __frOfrCat,  optCats,  'window.__frSetOfrCat',  'Categoría')
         + _sel('bate', __frOfrBate, optBates, 'window.__frSetOfrBate', 'Bate')
+        + _sel('estado', __frOfrEstado, optEstados, 'window.__frSetOfrEstado', 'Estado')
         + '<button onclick="window.__frToggleColapso()" style="border:1px solid #e2e8f0;background:#fff;'
         + 'border-radius:8px;padding:5px 11px;font-size:10.5px;font-weight:800;color:#64748b;cursor:pointer;">'
         + '<i class="fa-solid fa-'+(__frOfrColapsar?'up-right-and-down-left-from-center':'down-left-and-up-right-to-center')+'"></i> '
         + (__frOfrColapsar?'Desplegar todas':'Colapsar todas')+'</button>'
-        + ((__frOfrFiltro!=='todos'||__frOfrAnio!=='todos'||__frOfrCat!=='todos'||__frOfrBate!=='todas')
+        + ((__frOfrFiltro!=='todos'||__frOfrAnio!=='todos'||__frOfrCat!=='todos'||__frOfrBate!=='todas'||__frOfrEstado!=='todos'||__frOfrUgl!=='todas')
             ? '<button onclick="window.__frLimpiarOfr()" style="border:none;background:none;color:#7c3aed;'
               +'font-size:10.5px;font-weight:800;cursor:pointer;text-decoration:underline;">Limpiar filtros</button>' : '')
         + '</div>';
@@ -45587,7 +45795,10 @@ document.addEventListener('click',e=>{
             +escH(texto)+(n!=null?' '+n:'')+(on?' ×':'')+'</button>';
         }
         var _hayFiltro = (_st.estado!=='todos' || _st.cat!=='todas');
+        window.__frBatesParaVisor = window.__frBatesParaVisor || {};
+        window.__frBatesParaVisor[_bid] = { nombre:nombre, cuit:cuit, legajo:legajo, uglId:String(b.uglId||''), uglDesc:b.uglDesc||'', bate:(_noms[0]||b.bate||''), bateNamesArr:_noms.slice(), direccion:b.direccion||'', localidad:b.localidad||'', mods:b.mods.slice() };
         html+='<div onclick="event.stopPropagation()" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;align-items:center;">'
+            +'<button onclick="event.stopPropagation();window.__frAbrirVisorBate(\''+_bid+'\')" title="Abrir el visor de esta boca: seleccionar módulos, filtrar por estado y copiar la selección al Drive (mismo visor que la solapa Ofrecimientos)" style="cursor:pointer;border-radius:999px;padding:2px 10px;font-size:10px;font-weight:900;border:1px solid #0f9d58;background:#0f9d58;color:#fff;display:inline-flex;align-items:center;gap:5px;"><i class="fa-solid fa-copy" style="font-size:9px;"></i> Seleccionar · Drive</button>'
             +'<span style="background:#ede9fe;color:#5b21b6;border-radius:999px;padding:2px 9px;font-size:10px;font-weight:900;">'+b.mods.length+' módulos</span>'
             +(_act?_chip('estado','activos','activos',_act,'#0f766e','#0f766e','rgba(13,148,136,.12)','rgba(13,148,136,.25)'):'')
             +(_fin?_chip('estado','finalizados','finalizados',_fin,'#64748b','#64748b','#e2e8f0','#cbd5e1'):'')
@@ -45743,7 +45954,7 @@ document.addEventListener('click',e=>{
 
     // ── Pie ──
     html+='<div style="padding:14px 26px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">';
-    html+='<span>Resumen cruzado de dato duro · Habilitados (SII) × Ofrecimientos (POPP) · PAMI</span>';
+    html+='<span>Resumen cruzado de dato duro · Habilitados (SII) × Adendas RE 375/26 × Ofrecimientos (POPP) · PAMI</span>';
     html+='<span>Folio '+escH(folio)+' · '+escH(fechaStr)+'</span>';
     html+='</div>';
 
@@ -45770,6 +45981,8 @@ document.addEventListener('click',e=>{
       __frLastData.vista = (__frOfrFiltro==='activos'?'Solo activos':(__frOfrFiltro==='finalizados'?'Solo finalizados':'Todos los ofrecimientos'));
       __frLastData.habResumen = habRes;
       __frLastData.ofrResumen = ofrRes;
+      __frLastData.adeResumen = (__adeCasos||[]).map(function(c){ var e=''; try{ e=(c.estado||''); }catch(_){ } return 'UGL '+(c.uglNum||c.ugl||'')+(c.uglNombre?' '+c.uglNombre:'')+' · '+(c.cat==='firmada'?'Adenda firmada':(c.cat==='circuito'?'Circuito positivo':(c.cat==='observado'?'Observado':(c.cat==='analisis'?'Pendiente de análisis':(c.cat==='rechazado'?'Rechazado':'En circuito')))))+(e?' · '+e:'')+(c.expediente?' · Exp. '+c.expediente:''); });
+      __frLastData.sinSii = !prest;
       __frLastData.kpi = { hab:(kYaHab2+kSolo2), nuevos:kNuevos2, yaHab:kYaHab2 };
     }catch(e){}
 
@@ -45807,6 +46020,13 @@ document.addEventListener('click',e=>{
     if(d.habResumen && d.habResumen.length){
       L.push(B+'HABILITADO (SII)'+B);
       d.habResumen.forEach(function(x){ L.push('• '+x); });
+      L.push('');
+    }
+    if(d.sinSii){ L.push(B+'HABILITADO (SII)'+B); L.push('• No figura habilitado en el padrón SII'); L.push(''); }
+    // Adendas
+    if(d.adeResumen && d.adeResumen.length){
+      L.push(B+'ADENDAS RE 375/26'+B);
+      d.adeResumen.forEach(function(x){ L.push('• '+x); });
       L.push('');
     }
     // Ofrecimientos
@@ -45991,10 +46211,10 @@ document.addEventListener('click',e=>{
     if(frItems.length){ frPick(frActiveIndex>=0?frActiveIndex:0); return; }
     var q=($('frInput').value||'').trim();
     if(q.length<2)return;
-    requestSuggestFicha(q).then(function(items){
+    requestSuggestTodo(q).then(function(items){
       items=items||[];
       if(items.length){ frItems=items; frRenderSuggest(items); frSetActive(0); }
-      else { $('frResult').innerHTML='<div style="text-align:center;padding:30px;color:#94a3b8;font-size:13px;">No se encontró ningún prestador con ese criterio.</div>'; }
+      else { $('frResult').innerHTML='<div style="text-align:center;padding:30px;color:#94a3b8;font-size:13px;">No se encontró ningún prestador ni oferente con ese criterio (SII, POPP y adendas).</div>'; }
     });
   }
 
